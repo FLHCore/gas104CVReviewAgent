@@ -1,0 +1,6 @@
+# 不要推送 .git 目錄及 git 設定檔
+.git/
+.gitignore
+LICENSE
+README.md
+
