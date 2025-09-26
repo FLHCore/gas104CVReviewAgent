@@ -25,12 +25,30 @@ jobs:
 
     - name: Verify .clasprc.json content
       run: |
-      echo '--- Start of .clasprc.json content ---'
-      cat ~/.clasprc.json
-      echo '--- End of .clasprc.json content ---'
+        echo '--- Start of .clasprc.json content ---'
+        cat ~/.clasprc.json
+        echo '--- End of .clasprc.json content ---'
 
     - name: Create .clasp.json for target
-      run: echo '{"scriptId":"${{ secrets.STAGING_SCRIPT_ID }}", "rootDir":"${{ secrets.ROOT_DIR }}"}' > .clasp.json
+      run: |
+        cat <<EOF > .clasp.json
+        {
+          "scriptId": "${{ secrets.STAGING_SCRIPT_ID }}",
+          "rootDir": "${{ secrets.ROOT_DIR }}"
+          "scriptExtensions": [
+              ".js",
+              ".gs"
+            ],
+            "htmlExtensions": [
+              ".html"
+            ],
+            "jsonExtensions": [
+              ".json"
+            ],
+            "filePushOrder": [],
+            "skipSubdirectories": false
+        }
+        EOF
 
     - name: Push to Google Apps Script
       run: clasp push -f
