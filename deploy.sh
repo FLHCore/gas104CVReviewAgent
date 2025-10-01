@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # deploy.sh: 本地端 Google Apps Script 部署腳本
 #
@@ -32,12 +32,17 @@ Usage: ./deploy.sh [-h|--help] [scriptId] [rootDir]
   rootDir     (可選) 專案的根目錄。
               如果未提供，將會嘗試從 .clasp.json 讀取，預設為 "."。
 
+特殊關鍵字:
+  default     使用此關鍵字作為 scriptId，將強制腳本讀取本地 .clasp.json 的設定。
+  release     使用此關鍵字作為 scriptId，將自動部署到正式環境。
+  staging     使用此關鍵字作為 scriptId，將自動部署到測試環境。
+
 選項:
   -h, --help  顯示此說明訊息並結束。
 
 範例:
-  # 使用 .clasp.json 中的設定進行部署
-  ./deploy.sh
+  # 明確指定使用本地 .clasp.json 的設定
+  ./deploy.sh default
 
   # 指定 scriptId 和 rootDir 進行部署
   ./deploy.sh "YOUR_SCRIPT_ID" "./src"
@@ -85,22 +90,37 @@ echo -e "${GREEN}clasp 已認證。${NC}"
 # --- 步驟 3: 設定 scriptId 和 rootDir ---
 echo "Step 3: 正在設定目標 Script ID 和根目錄..."
 
-DEFAULT_SCRIPT_ID=""
-DEFAULT_ROOT_DIR="."
+SCRIPT_ID_ARG=${1}
+ROOT_DIR_ARG=${2}
 
-# 如果 .clasp.json 存在且 jq 已安裝，讀取預設值
-if [ -f .clasp.json ] && command -v jq &> /dev/null; then
-    DEFAULT_SCRIPT_ID=$(jq -r '.scriptId' .clasp.json)
-    DEFAULT_ROOT_DIR=$(jq -r '.rootDir' .clasp.json)
+if [ "$SCRIPT_ID_ARG" == "release" ]; then
+    echo -e "${YELLOW}偵測到 'release' 環境，自動替換為 Release Script ID。${NC}"
+    SCRIPT_ID="1e0cZMYPKz2zwHNzvtQFkwSL97U-IlTXcPoSS0SHuY-5GjGmcouuOsgLN"
+    ROOT_DIR=${ROOT_DIR_ARG:-"."}
+elif [ "$SCRIPT_ID_ARG" == "staging" ]; then
+    echo -e "${YELLOW}偵測到 'staging' 環境，自動替換為 Staging Script ID。${NC}"
+    SCRIPT_ID="1AU2q42-poSB057vk6i9uLIV93tA3DhF_btsNPbGNjy4SFCmotjJaxEPL"
+    ROOT_DIR=${ROOT_DIR_ARG:-"."}
+elif [ "$SCRIPT_ID_ARG" == "default" ] && [ -f .clasp.json ] && command -v jq &> /dev/null; then
+    echo -e "${YELLOW}偵測到 'default' 關鍵字，將使用本地 .clasp.json 設定。${NC}"
+    SCRIPT_ID=$(jq -r '.scriptId' .clasp.json)
+    ROOT_DIR=$(jq -r '.rootDir' .clasp.json)
+    if [ -z ${SCRIPT_ID} ]; then
+        echo -e "${RED}錯誤: 未提供 scriptId，且無法從本地 .clasp.json 讀取設定。${NC}"
+        usage
+    fi
+elif [-z "$SCRIPT_ID_ARG"];then
+    echo -e "${RED}錯誤: 未提供 scriptId，或無法從本地 .clasp.json 讀取設定。${NC}"
+    usage
+else
+    # 使用傳入的參數
+    SCRIPT_ID=$SCRIPT_ID_ARG
+    ROOT_DIR=${ROOT_DIR_ARG:-"."}
 fi
 
-# 使用傳入的參數或預設值
-SCRIPT_ID=${1:-$DEFAULT_SCRIPT_ID}
-ROOT_DIR=${2:-$DEFAULT_ROOT_DIR}
-
 if [ -z "$SCRIPT_ID" ] || [ "$SCRIPT_ID" == "null" ]; then
-    echo -e "${RED}錯誤: Script ID 未設定。請在 .clasp.json 中設定，或作為第一個參數傳入。${NC}"
-    exit 1
+    echo -e "${RED}錯誤: Script ID 未設定。請提供有效的 scriptId 或使用 'default' 關鍵字。${NC}\n"
+    usage
 fi
 
 echo "  - Script ID: $SCRIPT_ID"
