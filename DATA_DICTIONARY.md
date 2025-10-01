@@ -26,6 +26,8 @@
 *   `JobDescription`: 職位描述 (JD)。這是評估履歷時的標準依據之一，會被填入 `cv_review` 提示詞中。
 *   `BENCHMARK_CV`: 標竿履歷。這是一份理想候選人的履歷範本，作為評估時的黃金標準 (Gold Standard)，同樣會被填入 `cv_review` 提示詞。
 *   `CV_RANK_THREADSHOLD`: 履歷評分閾值。一個 1-10 的數字，用於判斷一份履歷的 AI 評分是否達到「推薦」標準。預設值為 `8`。
+*   `INVITATION_EMAIL_SUBJECT`: 自動發送面試邀請時使用的郵件主旨範本。
+*   `INVITATION_EMAIL_BODY`: 自動發送面試邀請時使用的郵件內文範本。
 
 ---
 
