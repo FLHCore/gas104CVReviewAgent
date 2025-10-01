@@ -20,6 +20,7 @@
  * - [ ] **新增 SHEET-[{JoTitile}] 職缺清單 SHEET**： 。
  * 
  * @todo
+ * - [ ] **新增功能：** 讀取簡歷中的「郵件位址」以及「電話」。
  * - [ ] **使用者回饋：** 簡歷AI評分若是超過「設定閾值」就直接發送 template mail 邀請對方。
  * - [ ] **使用者回饋：** 簡歷 HTML 格式轉換為 MD 格式內容中，有些會少了104簡歷的「代碼：1843339840761」資訊。
  * - [ ] **使用者回饋：** 透過104系統批次轉寄的簡歷郵件，需要自動匹配職缺，然後使用對應的 ReviewPrompt 處理。
@@ -81,9 +82,9 @@ function dailyWorkflow() {
     evaluateResumes();
     Logger.log("步驟 4/5: 完成。");
 
-    Logger.log("步驟 5/6: 依序發送高分履歷面試邀請 (sendInvitationEmails)...");
-    sendInvitationEmails();
-    Logger.log("步驟 5/6: 完成。");
+    Logger.log("步驟 5/6 (skip): 依序發送高分履歷面試邀請 (sendInvitationEmails)...");
+    // sendInvitationEmails();
+    // Logger.log("步驟 5/6: 完成。");
 
     Logger.log("步驟 6/6: 產生並寄送今日簡歷快報 (generateDailyCVReviewReport_v4)...");
     generateDailyCVReviewReport_v4();
@@ -642,18 +643,30 @@ function convertDocsToMarkdown() {
   const mailFolder = DriveApp.getFolderById(folderId);
   const dataRange = sheet.getDataRange();
   const values = dataRange.getValues();
-  
   const headers = values[0];
-  if (headers.length < 7 || headers[6] !== 'Markdown 檔案連結') {
-     sheet.getRange(1, 7).setValue('Markdown 檔案連結');
-  }
-  
+
+  // --- 檢查並新增所有需要的欄位 ---
+  let nextCol = headers.length + 1;
+  let mdUrlColIdx = headers.indexOf('Markdown 檔案連結');
+  let emailColIdx = headers.indexOf('E-mail');
+  let phoneColIdx = headers.indexOf('聯絡電話');
+
+  if (mdUrlColIdx === -1) { mdUrlColIdx = nextCol - 1; sheet.getRange(1, nextCol++).setValue('Markdown 檔案連結'); }
+  if (emailColIdx === -1) { emailColIdx = nextCol - 1; sheet.getRange(1, nextCol++).setValue('E-mail'); }
+  if (phoneColIdx === -1) { phoneColIdx = nextCol - 1; sheet.getRange(1, nextCol++).setValue('聯絡電話'); }
+
+  // 在迴圈外更新一次 headers 陣列，以確保後續的 values[i][colIdx] 能正確取值
+  const updatedHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  mdUrlColIdx = updatedHeaders.indexOf('Markdown 檔案連結');
+  emailColIdx = updatedHeaders.indexOf('E-mail');
+  phoneColIdx = updatedHeaders.indexOf('聯絡電話');
+
   Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 轉換作業開始，共 ${values.length - 1} 筆資料 =======`);
 
   for (let i = 1; i < values.length; i++) {
     const rowNum = i + 1;
-    const fileUrl = values[i][5]; // F 欄的檔案連結
-    const mdUrlCell = values[i][6]; // G 欄的 Markdown 連結
+    const fileUrl = values[i][5]; // F 欄的原始檔案連結
+    const mdUrlCell = values[i][mdUrlColIdx]; // Markdown 連結欄位
 
     // --- 條件檢查 ---
     if (mdUrlCell) {
@@ -704,8 +717,23 @@ function convertDocsToMarkdown() {
         const mdFileName = fileName.replace(/\.html?$/i, '') + '.md';
         const mdFile = mailFolder.createFile(mdFileName, markdownContent, MimeType.PLAIN_TEXT);          
         const mdFileUrl = mdFile.getUrl();
-        sheet.getRange(rowNum, 7).setValue(mdFileUrl);
+        sheet.getRange(rowNum, mdUrlColIdx + 1).setValue(mdFileUrl);
         Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功轉換檔案 "${fileName}"。`);
+
+        // --- [新增] 提取 E-mail 和聯絡電話 ---
+        const emailRegex = /(?:E-mail|Email)：\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/;
+        const phoneRegex = /聯絡電話：\s*([\d-]+)/;
+
+        const emailMatch = markdownContent.match(emailRegex);
+        const phoneMatch = markdownContent.match(phoneRegex);
+
+        if (emailMatch && emailMatch[1]) {
+          sheet.getRange(rowNum, emailColIdx + 1).setValue(emailMatch[1].trim());
+        }
+        if (phoneMatch && phoneMatch[1]) {
+          sheet.getRange(rowNum, phoneColIdx + 1).setValue(phoneMatch[1].trim());
+        }
+
       } else {
         throw new Error("Gemini API 回傳內容為空或轉換失敗。");
       }
@@ -714,7 +742,7 @@ function convertDocsToMarkdown() {
       // --- 錯誤處理與日誌記錄 ---
       const errorMessage = e.toString();
       const errorStack = e.stack || '無堆疊資訊';
-      sheet.getRange(rowNum, 7).setValue('處理失敗，請查看執行記錄');
+      sheet.getRange(rowNum, mdUrlColIdx + 1).setValue('處理失敗，請查看執行記錄');
       Logger.log(`[ERROR] ${FUNCTION_NAME}: 第 ${rowNum} 列處理失敗。\n  URL: ${fileUrl}\n  錯誤訊息: ${errorMessage}\n  堆疊: ${errorStack}`);
     }
   }
