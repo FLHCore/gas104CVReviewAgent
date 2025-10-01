@@ -3,4 +3,6 @@
 .gitignore
 LICENSE
 README.md
+DATA_DICTIONARY.md
 deploy.sh
+*.csv

@@ -45,6 +45,7 @@ function onOpen() {
       .addItem('依序儲存郵箱簡歷', 'saveEmailAsHtmlFile')
       .addItem('依序轉換簡歷格式', 'convertDocsToMarkdown')
       .addItem('依序評分簡歷', 'evaluateResumes') 
+      .addItem('依序發送面試邀請郵件', 'sendInvitationEmails')
       .addItem('今日簡歷快報', 'generateDailyCVReviewReport_v4')
       .addSeparator() 
       .addItem('手動執行DailyRoutine', 'dailyWorkflow')
@@ -80,9 +81,13 @@ function dailyWorkflow() {
     evaluateResumes();
     Logger.log("步驟 4/5: 完成。");
 
-    Logger.log("步驟 5/5: 產生並寄送今日簡歷快報 (generateDailyCVReviewReport_v4)...");
+    Logger.log("步驟 5/6: 依序發送高分履歷面試邀請 (sendInvitationEmails)...");
+    sendInvitationEmails();
+    Logger.log("步驟 5/6: 完成。");
+
+    Logger.log("步驟 6/6: 產生並寄送今日簡歷快報 (generateDailyCVReviewReport_v4)...");
     generateDailyCVReviewReport_v4();
-    Logger.log("步驟 5/5: 完成。");
+    Logger.log("步驟 6/6: 完成。");
 
   } catch (e) {
     const recipient = Session.getActiveUser().getEmail();
@@ -824,7 +829,9 @@ function getConfig(key) {
   if (key in configCache) {
     return configCache[key];
   } else {
-    Logger.log(`[WARN] getConfig: 在 CONFIG 中找不到鍵值 "${key}"。`);
+    const errorMsg = `設定錯誤：在 'CONFIG' 工作表中找不到必要的設定值 "${key}"。\n\n請檢查您的設定工作表。`;
+    Logger.log(`[ERROR] getConfig: ${errorMsg}`);
+    SpreadsheetApp.getUi().alert(errorMsg);
     return null;
   }
 }
@@ -1160,4 +1167,115 @@ function markdownToHtml(md) {
   md = md.replace(/\n/g, '<br>');
 
   return md;
+}
+
+/**
+ * [新增] 依序發送面試邀請郵件
+ * 找出評分超過 CV_RANK_THREADSHOLD 且尚未發送邀請的履歷，並自動寄送面試邀請。
+ */
+function sendInvitationEmails() {
+  const FUNCTION_NAME = 'sendInvitationEmails';
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('履歷清單');
+  if (!sheet) {
+    const errorMsg = '找不到名為 "履歷清單" 的工作表。';
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
+
+  const dataRange = sheet.getDataRange();
+  const values = dataRange.getValues();
+  const headers = values[0];
+
+  // --- 獲取所需欄位的索引 ---
+  const nameColIdx = headers.indexOf('應徵者姓名');
+  const summaryColIdx = headers.indexOf('評估報告');
+  const messageIdColIdx = headers.indexOf('郵件ID');
+  let invitationSentColIdx = headers.indexOf('已發送邀請郵件');
+
+  // 如果 '已發送邀請郵件' 欄位不存在，則在最後一欄新增
+  if (invitationSentColIdx === -1) {
+    invitationSentColIdx = sheet.getLastColumn();
+    sheet.getRange(1, invitationSentColIdx + 1).setValue('已發送邀請郵件');
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 已新增 '已發送邀請郵件' 欄位於第 ${invitationSentColIdx + 1} 欄。`);
+  }
+
+  // --- 獲取設定值 ---
+  const rankThreshold = parseFloat(getConfig('CV_RANK_THREADSHOLD') || '8');
+  let emailSubjectTemplate = getPrompt('invitation_email_subject');
+  let emailBodyTemplate = getPrompt('invitation_email_body');
+
+  if (!emailSubjectTemplate || !emailBodyTemplate) {
+    const errorMsg = '找不到 "invitation_email_subject" 或 "invitation_email_body" 的郵件範本，請在 PROMPTS 工作表中設定。';
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    SpreadsheetApp.getUi().alert(errorMsg);
+    return;
+  }
+
+  Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 開始檢查並發送面試邀請 (分數門檻: ${rankThreshold}) =======`);
+  let emailsSentCount = 0;
+
+  for (let i = 1; i < values.length; i++) {
+    const rowData = values[i];
+    const rowNum = i + 1;
+
+    const summary = rowData[summaryColIdx];
+    const invitationSentStatus = rowData[invitationSentColIdx];
+
+    // 條件：有評估報告、尚未發送邀請
+    if (summary && !invitationSentStatus) {
+      try {
+        // 從 "推薦信心度：8 / 10\n總體建議：建議面試" 中提取分數
+        const scoreMatch = summary.match(/推薦信心度：\s*(\d+(\.\d+)?)/);
+        if (!scoreMatch || !scoreMatch[1]) {
+          continue; // 找不到分數，跳過
+        }
+
+        const score = parseFloat(scoreMatch[1]);
+
+        // 檢查分數是否超過門檻
+        if (score >= rankThreshold) {
+          const applicantName = rowData[nameColIdx] || '應徵者';
+          const messageId = rowData[messageIdColIdx];
+
+          if (!messageId) {
+            Logger.log(`[WARN] ${FUNCTION_NAME}: 第 ${rowNum} 列分數達標但缺少郵件ID，無法回覆。`);
+            continue;
+          }
+
+          const originalMessage = GmailApp.getMessageById(messageId);
+          const recipientEmail = originalMessage.getFrom(); // 取得原始寄件人 email
+
+          // 替換範本中的變數
+          let emailSubject = emailSubjectTemplate.replace('{{應徵者姓名}}', applicantName);
+          let emailBody = emailBodyTemplate.replace(/{{應徵者姓名}}/g, applicantName);
+
+          // 將純文字郵件內文轉換為保留換行的 HTML 格式
+          const htmlBody = emailBody.replace(/\n/g, '<br>');
+
+          // 以回覆的方式寄送郵件
+          originalMessage.reply(emailBody, {
+            htmlBody: htmlBody,
+            name: '招募團隊' // 可自訂寄件人名稱
+          });
+
+          // 更新工作表狀態
+          const sentDate = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy/MM/dd HH:mm');
+          sheet.getRange(rowNum, invitationSentColIdx + 1).setValue(sentDate);
+          emailsSentCount++;
+          Logger.log(`[SUCCESS] ${FUNCTION_NAME}: 已向 "${applicantName}" (${recipientEmail}) 發送面試邀請。`);
+        }
+      } catch (e) {
+        const errorMessage = `處理失敗: ${e.toString()}`;
+        sheet.getRange(rowNum, invitationSentColIdx + 1).setValue(errorMessage);
+        Logger.log(`[ERROR] ${FUNCTION_NAME}: 處理第 ${rowNum} 列時發生錯誤: ${e.stack}`);
+      }
+    }
+  }
+
+  if (emailsSentCount > 0) {
+    Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 作業結束，共發送了 ${emailsSentCount} 封面試邀請。 =======`);
+    SpreadsheetApp.getUi().alert(`作業完成！共發送了 ${emailsSentCount} 封面試邀請。`);
+  } else {
+    Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 作業結束，沒有找到需要發送新邀請的履歷。 =======`);
+  }
 }
