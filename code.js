@@ -1201,11 +1201,11 @@ function sendInvitationEmails() {
 
   // --- 獲取設定值 ---
   const rankThreshold = parseFloat(getConfig('CV_RANK_THREADSHOLD') || '8');
-  let emailSubjectTemplate = getPrompt('invitation_email_subject');
-  let emailBodyTemplate = getPrompt('invitation_email_body');
+  let emailSubjectTemplate = getConfig('INVITATION_EMAIL_SUBJECT');
+  let emailBodyTemplate = getConfig('INVITATION_EMAIL_BODY');
 
   if (!emailSubjectTemplate || !emailBodyTemplate) {
-    const errorMsg = '找不到 "invitation_email_subject" 或 "invitation_email_body" 的郵件範本，請在 PROMPTS 工作表中設定。';
+    const errorMsg = '找不到 "INVITATION_EMAIL_SUBJECT" 或 "INVITATION_EMAIL_BODY" 的郵件範本，請在 CONFIG 工作表中設定。';
     Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
     SpreadsheetApp.getUi().alert(errorMsg);
     return;
