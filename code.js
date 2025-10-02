@@ -943,19 +943,23 @@ function getPrompt(key) {
 }
 
 /**
- * [新增] 讀取 CONFIG 工作表中的設定值
+ * [重構] 讀取 CONFIG 工作表中的設定值。
+ * 新增 defaultValue 參數，當在工作表中找不到指定的 key 時，會自動將 key 和 defaultValue 新增到工作表中。
  * @param {string} key - 要讀取的設定鍵值
- * @returns {string|null} - 設定的值，或在找不到時返回 null
+ * @param {string} [defaultValue] - (可選) 當 key 不存在時要設定的預設值。
+ * @returns {string|null} - 設定的值，或在發生錯誤時返回 null。
  */
 const configCache = {}; // 使用快取避免重複讀取
-function getConfig(key) {
+function getConfig(key, defaultValue = undefined) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CONFIG');
+  if (!sheet) {
+    Logger.log('[ERROR] getConfig: 找不到名為 "CONFIG" 的工作表。');
+    SpreadsheetApp.getUi().alert('錯誤：找不到名為 "CONFIG" 的設定工作表。');
+    return null;
+  }
+
+  // 如果快取是空的，就從工作表載入所有設定
   if (Object.keys(configCache).length === 0) {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('CONFIG');
-    if (!sheet) {
-      Logger.log('[ERROR] getConfig: 找不到名為 "CONFIG" 的工作表。');
-      SpreadsheetApp.getUi().alert('錯誤：找不到名為 "CONFIG" 的設定工作表。');
-      return null;
-    }
     const data = sheet.getDataRange().getValues();
     // 從第二行開始讀取，跳過標題
     for (let i = 1; i < data.length; i++) {
@@ -963,13 +967,28 @@ function getConfig(key) {
         configCache[data[i][0]] = data[i][1];
       }
     }
-    Logger.log('[INFO] getConfig: 已載入 CONFIG 工作表設定。');
+    Logger.log('[INFO] getConfig: 已從 CONFIG 工作表載入快取。');
   }
 
+  // 檢查快取中是否存在該 key
   if (key in configCache) {
     return configCache[key];
+  } 
+  // 如果 key 不存在，且提供了 defaultValue
+  else if (defaultValue !== undefined) {
+    Logger.log(`[INFO] getConfig: 在 CONFIG 中找不到 key: "${key}"。正在使用預設值並寫入工作表。`);
+    try {
+      sheet.appendRow([key, defaultValue]); // 在工作表最後新增此設定
+      configCache[key] = defaultValue; // 更新快取
+      return defaultValue;
+    } catch (e) {
+      Logger.log(`[ERROR] getConfig: 無法將新的設定值 ("${key}") 寫入 CONFIG 工作表: ${e.toString()}`);
+      SpreadsheetApp.getUi().alert(`無法將新的設定值 ("${key}") 寫入 CONFIG 工作表。請檢查權限。`);
+      return null;
+    }
   } else {
-    const errorMsg = `設定錯誤：在 'CONFIG' 工作表中找不到必要的設定值 "${key}"。\n\n請檢查您的設定工作表。`;
+    // 如果 key 不存在，且沒有提供 defaultValue
+    const errorMsg = `設定錯誤：在 'CONFIG' 工作表中找不到必要的設定值 "${key}"，且未提供預設值。`;
     Logger.log(`[ERROR] getConfig: ${errorMsg}`);
     SpreadsheetApp.getUi().alert(errorMsg);
     return null;
@@ -1330,24 +1349,60 @@ function sendInvitationEmails() {
   const nameColIdx = headers.indexOf('應徵者姓名');
   const summaryColIdx = headers.indexOf('評估報告');
   const messageIdColIdx = headers.indexOf('郵件ID');
+  const sentStatusColIdx = headers.indexOf('已發送'); // 找到「已發送」欄位的索引
   let invitationSentColIdx = headers.indexOf('已發送邀請郵件');
 
-  // 如果 '已發送邀請郵件' 欄位不存在，則在最後一欄新增
+  // 如果 '已發送邀請郵件' 欄位不存在，則新增它
   if (invitationSentColIdx === -1) {
-    invitationSentColIdx = sheet.getLastColumn();
-    sheet.getRange(1, invitationSentColIdx + 1).setValue('已發送邀請郵件');
-    Logger.log(`[INFO] ${FUNCTION_NAME}: 已新增 '已發送邀請郵件' 欄位於第 ${invitationSentColIdx + 1} 欄。`);
+    if (sentStatusColIdx !== -1) {
+      // 如果「已發送」欄位存在，則在其前面插入新欄位
+      const targetCol = sentStatusColIdx + 1;
+      sheet.insertColumnBefore(targetCol);
+      sheet.getRange(1, targetCol).setValue('已發送邀請郵件');
+      invitationSentColIdx = sentStatusColIdx; // 更新索引
+      Logger.log(`[INFO] ${FUNCTION_NAME}: 已在 '已發送' 欄位前新增 '已發送邀請郵件' 欄位。`);
+    } else {
+      // 如果「已發送」欄位也不存在，則在最後新增
+      invitationSentColIdx = sheet.getLastColumn();
+      sheet.getRange(1, invitationSentColIdx + 1).setValue('已發送邀請郵件');
+      Logger.log(`[INFO] ${FUNCTION_NAME}: 已新增 '已發送邀請郵件' 欄位於第 ${invitationSentColIdx + 1} 欄。`);
+    }
   }
 
   // --- 獲取設定值 ---
-  const rankThreshold = parseFloat(getConfig('CV_RANK_THREADSHOLD') || '8');
-  let emailSubjectTemplate = getConfig('INVITATION_EMAIL_SUBJECT');
-  let emailBodyTemplate = getConfig('INVITATION_EMAIL_BODY');
+  const defaultSubject = '關於 [您的公司名稱] [職缺名稱] 職位的面試邀請 - {{應徵者姓名}}';
+  const defaultBody = `親愛的 {{應徵者姓名}} 您好：
+
+感謝您應徵 [您的公司名稱] 的 [職缺名稱] 職位。
+
+我們在仔細閱讀您的履歷後，對您的專業背景與經歷留下了深刻的印象，認為您非常符合我們的需求。因此，我們誠摯地邀請您進入下一階段的面試流程，讓我們能有更深入的交流。
+
+請問您下週有哪些時段方便進行線上面談呢？
+
+期待您的回覆！
+
+祝 順心
+
+[您的姓名或 HR 部門]
+[您的公司名稱]
+`;
+
+  // 使用重構後的 getConfig，如果找不到 key，會自動從 sheet-CONFIG.csv 的內容建立預設值
+  const rankThreshold = parseFloat(getConfig('CV_RANK_THREADSHOLD', '8'));
+  let emailSubjectTemplate = getConfig('INVITATION_EMAIL_SUBJECT', defaultSubject);
+  let emailBodyTemplate = getConfig('INVITATION_EMAIL_BODY', defaultBody);
 
   if (!emailSubjectTemplate || !emailBodyTemplate) {
     const errorMsg = '找不到 "INVITATION_EMAIL_SUBJECT" 或 "INVITATION_EMAIL_BODY" 的郵件範本，請在 CONFIG 工作表中設定。';
     Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
     SpreadsheetApp.getUi().alert(errorMsg);
+    return;
+  }
+
+  // [新增] 檢查是否為未經修改的預設值，如果是，則提示使用者並停止執行
+  if (emailSubjectTemplate.includes('[您的公司名稱]') || emailBodyTemplate.includes('[您的公司名稱]')) {
+    const logMsg = '偵測到您尚未設定面試邀請郵件範本 (INVITATION_EMAIL_SUBJECT, INVITATION_EMAIL_BODY)。系統已為您新增預設值，但需要您手動修改如 "[您的公司名稱]" 等資訊。郵件發送流程已中止。';
+    Logger.log(`[WARN] ${FUNCTION_NAME}: ${logMsg}`);
     return;
   }
 
