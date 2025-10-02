@@ -258,7 +258,7 @@ function searchAndProcessResumes(yesterdayString, todayString) {
   if (!baseQuery) {
     const errorMsg = '錯誤：無法從 CONFIG 工作表讀取 "GMAIL_SEARCH_QUERY" 設定，請檢查工作表內容。';
     Logger.log(`[ERROR] searchAndProcessResumes: ${errorMsg}`);
-    SpreadsheetApp.getUi().alert(errorMsg);
+    // SpreadsheetApp.getUi().alert(errorMsg);
     throw new Error(errorMsg);
   }
   
@@ -1348,27 +1348,35 @@ function sendInvitationEmails() {
   // --- 獲取所需欄位的索引 ---
   const nameColIdx = headers.indexOf('應徵者姓名');
   const summaryColIdx = headers.indexOf('評估報告');
+  const emailColIdx = headers.indexOf('E-mail'); // [修改] 新增讀取 E-mail 欄位
   const messageIdColIdx = headers.indexOf('郵件ID');
   const sentStatusColIdx = headers.indexOf('已發送'); // 找到「已發送」欄位的索引
-  let invitationSentColIdx = headers.indexOf('已發送邀請郵件');
+  let invitationSentColIdx = headers.indexOf('邀請郵件');
 
-  // 如果 '已發送邀請郵件' 欄位不存在，則新增它
+  // 如果 '邀請郵件' 欄位不存在，則新增它
   if (invitationSentColIdx === -1) {
     if (sentStatusColIdx !== -1) {
       // 如果「已發送」欄位存在，則在其前面插入新欄位
       const targetCol = sentStatusColIdx + 1;
       sheet.insertColumnBefore(targetCol);
-      sheet.getRange(1, targetCol).setValue('已發送邀請郵件');
+      sheet.getRange(1, targetCol).setValue('邀請郵件');
       invitationSentColIdx = sentStatusColIdx; // 更新索引
-      Logger.log(`[INFO] ${FUNCTION_NAME}: 已在 '已發送' 欄位前新增 '已發送邀請郵件' 欄位。`);
+      Logger.log(`[INFO] ${FUNCTION_NAME}: 已在 '已發送' 欄位前新增 '邀請郵件' 欄位。`);
     } else {
       // 如果「已發送」欄位也不存在，則在最後新增
       invitationSentColIdx = sheet.getLastColumn();
-      sheet.getRange(1, invitationSentColIdx + 1).setValue('已發送邀請郵件');
-      Logger.log(`[INFO] ${FUNCTION_NAME}: 已新增 '已發送邀請郵件' 欄位於第 ${invitationSentColIdx + 1} 欄。`);
+      sheet.getRange(1, invitationSentColIdx + 1).setValue('邀請郵件');
+      Logger.log(`[INFO] ${FUNCTION_NAME}: 已新增 '邀請郵件' 欄位於第 ${invitationSentColIdx + 1} 欄。`);
     }
   }
 
+  // [修改] 檢查 E-mail 欄位是否存在
+  if (emailColIdx === -1) {
+    const errorMsg = '找不到 "E-mail" 欄位，無法確定邀請郵件收件人。請先執行「讀取 E-mail 與聯絡電話」。';
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    // SpreadsheetApp.getUi().alert(errorMsg);
+    throw new Error(errorMsg);
+  }
   // --- 獲取設定值 ---
   const defaultSubject = '關於 [您的公司名稱] [職缺名稱] 職位的面試邀請 - {{應徵者姓名}}';
   const defaultBody = `親愛的 {{應徵者姓名}} 您好：
@@ -1391,12 +1399,12 @@ function sendInvitationEmails() {
   const rankThreshold = parseFloat(getConfig('CV_RANK_THREADSHOLD', '8'));
   let emailSubjectTemplate = getConfig('INVITATION_EMAIL_SUBJECT', defaultSubject);
   let emailBodyTemplate = getConfig('INVITATION_EMAIL_BODY', defaultBody);
+  const autoSendEmail = getConfig('AUTO_SEND_INVITATION_EMAIL', 'false').toString().toLowerCase() === 'true';
 
   if (!emailSubjectTemplate || !emailBodyTemplate) {
     const errorMsg = '找不到 "INVITATION_EMAIL_SUBJECT" 或 "INVITATION_EMAIL_BODY" 的郵件範本，請在 CONFIG 工作表中設定。';
     Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
-    SpreadsheetApp.getUi().alert(errorMsg);
-    return;
+    throw new Error(errorMsg);
   }
 
   // [新增] 檢查是否為未經修改的預設值，如果是，則提示使用者並停止執行
@@ -1406,7 +1414,7 @@ function sendInvitationEmails() {
     return;
   }
 
-  Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 開始檢查並發送面試邀請 (分數門檻: ${rankThreshold}) =======`);
+  Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 開始檢查並建立面試邀請草稿 (分數門檻: ${rankThreshold}, 自動建立: ${autoSendEmail}) =======`);
   let emailsSentCount = 0;
 
   for (let i = 1; i < values.length; i++) {
@@ -1430,15 +1438,12 @@ function sendInvitationEmails() {
         // 檢查分數是否超過門檻
         if (score >= rankThreshold) {
           const applicantName = rowData[nameColIdx] || '應徵者';
-          const messageId = rowData[messageIdColIdx];
+          const recipientEmail = rowData[emailColIdx]; // [修改] 從 E-mail 欄位取得收件人地址
 
-          if (!messageId) {
-            Logger.log(`[WARN] ${FUNCTION_NAME}: 第 ${rowNum} 列分數達標但缺少郵件ID，無法回覆。`);
+          if (!recipientEmail || recipientEmail === '[N/A]') {
+            Logger.log(`[WARN] ${FUNCTION_NAME}: 第 ${rowNum} 列分數達標但缺少有效的 E-mail 地址，無法發送邀請。`);
             continue;
           }
-
-          const originalMessage = GmailApp.getMessageById(messageId);
-          const recipientEmail = originalMessage.getFrom(); // 取得原始寄件人 email
 
           // 替換範本中的變數
           let emailSubject = emailSubjectTemplate.replace('{{應徵者姓名}}', applicantName);
@@ -1446,18 +1451,30 @@ function sendInvitationEmails() {
 
           // 將純文字郵件內文轉換為保留換行的 HTML 格式
           const htmlBody = emailBody.replace(/\n/g, '<br>');
+          
+          if (autoSendEmail) {
+            // [修改] 改為建立草稿
+            const draft = GmailApp.createDraft(recipientEmail, emailSubject, emailBody, {
+              htmlBody: htmlBody,
+              name: '招募團隊' // 可自訂寄件人名稱
+            });
 
-          // 以回覆的方式寄送郵件
-          originalMessage.reply(emailBody, {
-            htmlBody: htmlBody,
-            name: '招募團隊' // 可自訂寄件人名稱
-          });
+            // 建立草稿的直接連結
+            const draftUrl = `https://mail.google.com/mail/u/0/#drafts/${draft.getId()}`;
 
-          // 更新工作表狀態
-          const sentDate = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy/MM/dd HH:mm');
-          sheet.getRange(rowNum, invitationSentColIdx + 1).setValue(sentDate);
-          emailsSentCount++;
-          Logger.log(`[SUCCESS] ${FUNCTION_NAME}: 已向 "${applicantName}" (${recipientEmail}) 發送面試邀請。`);
+            // 更新工作表狀態為草稿連結
+            sheet.getRange(rowNum, invitationSentColIdx + 1).setValue(draftUrl);
+            emailsSentCount++;
+            Logger.log(`[SUCCESS] ${FUNCTION_NAME}: 已為 "${applicantName}" (${recipientEmail}) 建立面試邀請草稿。`);
+          } else {
+            // 如果設定為不自動發送，則將狀態標記為 'disabled'
+            sheet.getRange(rowNum, invitationSentColIdx + 1).setValue('disabled');
+            Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列分數達標，但因 AUTO_SEND_INVITATION_EMAIL=false，狀態設為 'disabled'。`);
+          }
+        } else {
+          // 如果分數未達門檻，則將狀態標記為「未達標」
+          sheet.getRange(rowNum, invitationSentColIdx + 1).setValue('未達標');
+          Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列分數 (${score}) 未達門檻 (${rankThreshold})，狀態設為 '未達標'。`);
         }
       } catch (e) {
         const errorMessage = `處理失敗: ${e.toString()}`;
@@ -1468,9 +1485,9 @@ function sendInvitationEmails() {
   }
 
   if (emailsSentCount > 0) {
-    Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 作業結束，共發送了 ${emailsSentCount} 封面試邀請。 =======`);
-    SpreadsheetApp.getUi().alert(`作業完成！共發送了 ${emailsSentCount} 封面試邀請。`);
+    Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 作業結束，共建立了 ${emailsSentCount} 封面試邀請草稿。 =======`);
+    // SpreadsheetApp.getUi().alert(`作業完成！共建立了 ${emailsSentCount} 封面試邀請草稿。`);
   } else {
-    Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 作業結束，沒有找到需要發送新邀請的履歷。 =======`);
+    Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 作業結束，沒有找到需要建立新邀請草稿的履歷。 =======`);
   }
 }
