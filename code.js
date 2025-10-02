@@ -84,8 +84,8 @@ function dailyWorkflow() {
     Logger.log("步驟 4/5: 完成。");
 
     Logger.log("步驟 5/6 (skip): 依序發送高分履歷面試邀請 (sendInvitationEmails)...");
-    // sendInvitationEmails();
-    // Logger.log("步驟 5/6: 完成。");
+    sendInvitationEmails();
+    Logger.log("步驟 5/6: 完成。");
 
     Logger.log("步驟 6/6: 產生並寄送今日簡歷快報 (generateDailyCVReviewReport_v4)...");
     generateDailyCVReviewReport_v4();
@@ -1206,6 +1206,7 @@ function generateDailyCVReviewReport_v4() {
   const summaryColIdx = headers.indexOf('評估報告');
   const fullReportColIdx = headers.indexOf('完整評估報告');
   const summaryPromptFileColIdx = headers.indexOf('Summary Prompt 檔案連結'); // 新增：讀取 Summary Prompt 連結
+  const invitationSentColIdx = headers.indexOf('邀請郵件'); // [新增] 讀取邀請郵件欄位
   let sentStatusColIdx = headers.indexOf('已發送');
 
   // 如果 '已發送' 欄位不存在，則在最後一欄新增
@@ -1224,6 +1225,7 @@ function generateDailyCVReviewReport_v4() {
     const summary = rowData[summaryColIdx];
     const summaryPromptUrl = rowData[summaryPromptFileColIdx];
     const sentStatus = rowData[sentStatusColIdx];
+    const invitationStatus = invitationSentColIdx !== -1 ? rowData[invitationSentColIdx] : null; // [新增] 獲取邀請郵件狀態
     const rowNum = i + 1;
 
     // 條件：評估報告已產生，且尚未發送
@@ -1249,7 +1251,8 @@ function generateDailyCVReviewReport_v4() {
           reportsToSend.push({
             details: reportDetails,
             fullReportUrl: rowData[fullReportColIdx] || '#',
-            rowNum: rowNum // 記錄行號以便後續更新
+            rowNum: rowNum, // 記錄行號以便後續更新
+            invitationStatus: invitationStatus // [新增] 儲存邀請郵件狀態
           });
         } else {
           Logger.log(`[WARN] ${FUNCTION_NAME}: 第 ${rowNum} 列的報告內容無法解析出關鍵字，跳過。`);
@@ -1266,8 +1269,20 @@ function generateDailyCVReviewReport_v4() {
     const sheetURL = SpreadsheetApp.getActiveSpreadsheet().getUrl();
 
     reportsToSend.forEach(report => {
+      let invitationLine = '';
+      if (report.invitationStatus) {
+        if (report.invitationStatus.startsWith('https://mail.google.com')) {
+          invitationLine = `- **面試邀請**: 郵件草稿連結 ${report.invitationStatus}\n`;
+        } else if (report.invitationStatus === '未達標') {
+          invitationLine = `- **面試邀請**: 分數未達門檻\n`;
+        } else if (report.invitationStatus === 'disabled') {
+          invitationLine = `- **面試邀請**: 已達標，但自動建立已關閉\n`;
+        }
+      }
+
       dailySummary += `### ${report.details.name}\n`
                    +  `- **推薦信心度**: ${report.details.confidence}\n`
+                   +  invitationLine // [新增] 加入邀請郵件狀態行
                    +  `- **核心優勢**: ${report.details.strength}\n`
                    +  `- **潛在疑慮**: ${report.details.concern}\n\n`
                    +  `查看完整評估報告: ${report.fullReportUrl}\n\n`
