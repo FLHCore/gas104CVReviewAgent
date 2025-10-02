@@ -742,9 +742,9 @@ function extractContactInfoFromMarkdown() {
     throw new Error(errorMsg);
   }
 
-  const dataRange = sheet.getDataRange();
-  const values = dataRange.getValues();
-  const headers = values[0];
+  let dataRange = sheet.getDataRange();
+  let values = dataRange.getValues();
+  let headers = values[0];
 
   // --- 檢查並獲取所需欄位的索引 ---
   let mdUrlColIdx = headers.indexOf('Markdown 檔案連結');
@@ -758,15 +758,29 @@ function extractContactInfoFromMarkdown() {
     return;
   }
 
-  // 動態新增不存在的欄位
-  let nextCol = headers.length + 1;
-  if (emailColIdx === -1) { emailColIdx = nextCol - 1; sheet.getRange(1, nextCol++).setValue('E-mail'); }
-  if (phoneColIdx === -1) { phoneColIdx = nextCol - 1; sheet.getRange(1, nextCol++).setValue('聯絡電話'); }
+  // --- 動態新增不存在的欄位 ---
+  // 為了確保欄位順序正確 (Markdown -> E-mail -> 電話)，我們從後往前插入
+  // 這樣可以避免先插入的欄位導致後續欄位索引變動的問題。
+  let columnsAdded = false;
+  if (phoneColIdx === -1) {
+    sheet.insertColumnAfter(mdUrlColIdx + 1);
+    sheet.getRange(1, mdUrlColIdx + 2).setValue('聯絡電話');
+    columnsAdded = true;
+  }
+  if (emailColIdx === -1) {
+    sheet.insertColumnAfter(mdUrlColIdx + 1);
+    sheet.getRange(1, mdUrlColIdx + 2).setValue('E-mail');
+    columnsAdded = true;
+  }
 
-  // 在迴圈外更新一次 headers 陣列，以確保後續的 values[i][colIdx] 能正確取值
-  const updatedHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  emailColIdx = updatedHeaders.indexOf('E-mail');
-  phoneColIdx = updatedHeaders.indexOf('聯絡電話');
+  // 如果新增了欄位，需要重新獲取資料和欄位索引
+  if (columnsAdded) {
+    dataRange = sheet.getDataRange();
+    values = dataRange.getValues();
+    headers = values[0];
+    emailColIdx = headers.indexOf('E-mail');
+    phoneColIdx = headers.indexOf('聯絡電話');
+  }
 
   Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 聯絡資訊提取作業開始，共 ${values.length - 1} 筆資料 =======`);
 
@@ -787,20 +801,30 @@ function extractContactInfoFromMarkdown() {
 
         if (!markdownContent) throw new Error("讀取的 Markdown 檔案內容為空。");
 
-        // --- 提取 E-mail 和聯絡電話 ---
-        const emailRegex = /(?:E-mail|Email)：\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/;
-        const phoneRegex = /聯絡電話：\s*([\d-]+)/;
+        // --- 提取 E-mail 和聯絡電話 (支援全形與半形冒號) ---
+        const emailRegex = /(?:E-mail|Email)[:：]\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/;
+        const phoneRegex = /聯絡電話[:：]\s*([\d-]+)/;
 
         const emailMatch = markdownContent.match(emailRegex);
         const phoneMatch = markdownContent.match(phoneRegex);
 
-        if (emailMatch && emailMatch[1] && !emailCell) {
-          sheet.getRange(rowNum, emailColIdx + 1).setValue(emailMatch[1].trim());
-          Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功提取 E-mail。`);
+        // 處理 E-mail
+        if (!emailCell) { // 只有當儲存格為空時才處理
+          if (emailMatch && emailMatch[1]) {
+            sheet.getRange(rowNum, emailColIdx + 1).setValue(emailMatch[1].trim());
+            Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功提取 E-mail。`);
+          } else {
+            sheet.getRange(rowNum, emailColIdx + 1).setValue('[N/A]');
+          }
         }
-        if (phoneMatch && phoneMatch[1] && !phoneCell) {
-          sheet.getRange(rowNum, phoneColIdx + 1).setValue(phoneMatch[1].trim());
-          Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功提取聯絡電話。`);
+        // 處理聯絡電話
+        if (!phoneCell) { // 只有當儲存格為空時才處理
+          if (phoneMatch && phoneMatch[1]) {
+            sheet.getRange(rowNum, phoneColIdx + 1).setValue(phoneMatch[1].trim());
+            Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功提取聯絡電話。`);
+          } else {
+            sheet.getRange(rowNum, phoneColIdx + 1).setValue('[N/A]');
+          }
         }
 
       } catch (e) {

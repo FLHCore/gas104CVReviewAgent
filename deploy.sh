@@ -36,6 +36,7 @@ Usage: ./deploy.sh [-h|--help] [scriptId] [rootDir]
   default     使用此關鍵字作為 scriptId，將強制腳本讀取本地 .clasp.json 的設定。
   release     使用此關鍵字作為 scriptId，將自動部署到正式環境。
   staging     使用此關鍵字作為 scriptId，將自動部署到測試環境。
+  devp        使用此關鍵字作為 scriptId，將自動部署到開發環境 (Development)。
 
 選項:
   -h, --help  顯示此說明訊息並結束。
@@ -100,6 +101,10 @@ if [ "$SCRIPT_ID_ARG" == "release" ]; then
 elif [ "$SCRIPT_ID_ARG" == "staging" ]; then
     echo -e "${YELLOW}偵測到 'staging' 環境，自動替換為 Staging Script ID。${NC}"
     SCRIPT_ID="1AU2q42-poSB057vk6i9uLIV93tA3DhF_btsNPbGNjy4SFCmotjJaxEPL"
+    ROOT_DIR=${ROOT_DIR_ARG:-"."}
+elif [ "$SCRIPT_ID_ARG" == "devp" ]; then
+    echo -e "${YELLOW}偵測到 'devp' 環境，自動替換為 Development Script ID。${NC}"
+    SCRIPT_ID="1-K7Q_0OvjoQAkNN4KiUB4c6KjJ0djcVI_UFAH57psMKEP57cxfvD8Z2X"
     ROOT_DIR=${ROOT_DIR_ARG:-"."}
 elif [ "$SCRIPT_ID_ARG" == "default" ] && [ -f .clasp.json ] && command -v jq &> /dev/null; then
     echo -e "${YELLOW}偵測到 'default' 關鍵字，將使用本地 .clasp.json 設定。${NC}"
