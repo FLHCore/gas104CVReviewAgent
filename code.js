@@ -750,6 +750,7 @@ function extractContactInfoFromMarkdown() {
   let mdUrlColIdx = headers.indexOf('Markdown 檔案連結');
   let emailColIdx = headers.indexOf('E-mail');
   let phoneColIdx = headers.indexOf('聯絡電話');
+  let codeColIdx = headers.indexOf('代碼'); // 新增：檢查「代碼」欄位
 
   if (mdUrlColIdx === -1) {
     const errorMsg = '找不到 "Markdown 檔案連結" 欄位。請先執行「依序轉換簡歷格式」。';
@@ -758,19 +759,26 @@ function extractContactInfoFromMarkdown() {
     return;
   }
 
-  // --- 動態新增不存在的欄位 ---
-  // 為了確保欄位順序正確 (Markdown -> E-mail -> 電話)，我們從後往前插入
-  // 這樣可以避免先插入的欄位導致後續欄位索引變動的問題。
+  // --- 動態新增不存在的欄位 (從前往後插入，並在每次插入後更新 headers) ---
   let columnsAdded = false;
-  if (phoneColIdx === -1) {
-    sheet.insertColumnAfter(mdUrlColIdx + 1);
-    sheet.getRange(1, mdUrlColIdx + 2).setValue('聯絡電話');
-    columnsAdded = true;
-  }
-  if (emailColIdx === -1) {
+  if (emailColIdx === -1) { 
     sheet.insertColumnAfter(mdUrlColIdx + 1);
     sheet.getRange(1, mdUrlColIdx + 2).setValue('E-mail');
-    columnsAdded = true;
+    columnsAdded = true; 
+    headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]; // 更新 headers
+  }
+  if (phoneColIdx === -1) { 
+    emailColIdx = headers.indexOf('E-mail'); // 重新獲取 E-mail 索引
+    sheet.insertColumnAfter(emailColIdx + 1);
+    sheet.getRange(1, emailColIdx + 2).setValue('聯絡電話');
+    columnsAdded = true; 
+    headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0]; // 再次更新 headers
+  }
+  if (codeColIdx === -1) { 
+    phoneColIdx = headers.indexOf('聯絡電話'); // 重新獲取電話索引
+    sheet.insertColumnAfter(phoneColIdx + 1);
+    sheet.getRange(1, phoneColIdx + 2).setValue('代碼');
+    columnsAdded = true; 
   }
 
   // 如果新增了欄位，需要重新獲取資料和欄位索引
@@ -780,6 +788,7 @@ function extractContactInfoFromMarkdown() {
     headers = values[0];
     emailColIdx = headers.indexOf('E-mail');
     phoneColIdx = headers.indexOf('聯絡電話');
+    codeColIdx = headers.indexOf('代碼'); // 新增：重新獲取「代碼」欄位索引
   }
 
   Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 聯絡資訊提取作業開始，共 ${values.length - 1} 筆資料 =======`);
@@ -789,9 +798,10 @@ function extractContactInfoFromMarkdown() {
     const markdownUrl = values[i][mdUrlColIdx];
     const emailCell = values[i][emailColIdx];
     const phoneCell = values[i][phoneColIdx];
+    const codeCell = values[i][codeColIdx]; // 新增：獲取「代碼」儲存格內容
 
-    // 條件：有 Markdown 連結，且 E-mail 或電話欄位為空
-    if (markdownUrl && (!emailCell || !phoneCell)) {
+    // 條件：有 Markdown 連結，且 E-mail、電話或代碼欄位為空
+    if (markdownUrl && (!emailCell || !phoneCell || !codeCell)) {
       try {
         const idMatch = markdownUrl.match(/[-\w]{25,}/);
         if (!idMatch) throw new Error("無法從 URL 中解析出檔案 ID。");
@@ -804,9 +814,11 @@ function extractContactInfoFromMarkdown() {
         // --- 提取 E-mail 和聯絡電話 (支援全形與半形冒號) ---
         const emailRegex = /(?:E-mail|Email)[:：]\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/;
         const phoneRegex = /聯絡電話[:：]\s*([\d-]+)/;
+        const codeRegex = /代碼[:：]\s*(\w+)/; // 新增：提取「代碼」的正規表示式
 
         const emailMatch = markdownContent.match(emailRegex);
         const phoneMatch = markdownContent.match(phoneRegex);
+        const codeMatch = markdownContent.match(codeRegex); // 新增：匹配「代碼」
 
         // 處理 E-mail
         if (!emailCell) { // 只有當儲存格為空時才處理
@@ -826,10 +838,19 @@ function extractContactInfoFromMarkdown() {
             sheet.getRange(rowNum, phoneColIdx + 1).setValue('[N/A]');
           }
         }
+        // 新增：處理代碼
+        if (!codeCell) { // 只有當儲存格為空時才處理
+          if (codeMatch && codeMatch[1]) {
+            sheet.getRange(rowNum, codeColIdx + 1).setValue("'" + codeMatch[1].trim()); // 加上 ' 確保以文字格式儲存
+            Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功提取代碼。`);
+          } else {
+            sheet.getRange(rowNum, codeColIdx + 1).setValue('[N/A]');
+          }
+        }
 
       } catch (e) {
         const errorMessage = `提取失敗: ${e.toString()}`;
-        // 只在兩個欄位都為空時寫入錯誤訊息，避免覆蓋已有的資料
+        // 只在所有目標欄位都為空時寫入錯誤訊息，避免覆蓋已有的資料
         if (!emailCell && !phoneCell) {
           sheet.getRange(rowNum, emailColIdx + 1).setValue(errorMessage);
         }
