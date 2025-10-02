@@ -45,6 +45,7 @@ function onOpen() {
       .addItem('更新郵箱簡歷清單', 'mainProcessResumes')
       .addItem('依序儲存郵箱簡歷', 'saveEmailAsHtmlFile')
       .addItem('依序轉換簡歷格式', 'convertDocsToMarkdown')
+      .addItem('讀取 E-mail 與聯絡電話', 'extractContactInfoFromMarkdown') // [新增]
       .addItem('依序評分簡歷', 'evaluateResumes') 
       .addItem('依序發送面試邀請郵件', 'sendInvitationEmails')
       .addItem('今日簡歷快報', 'generateDailyCVReviewReport_v4')
@@ -646,20 +647,12 @@ function convertDocsToMarkdown() {
   const headers = values[0];
 
   // --- 檢查並新增所有需要的欄位 ---
-  let nextCol = headers.length + 1;
   let mdUrlColIdx = headers.indexOf('Markdown 檔案連結');
-  let emailColIdx = headers.indexOf('E-mail');
-  let phoneColIdx = headers.indexOf('聯絡電話');
-
-  if (mdUrlColIdx === -1) { mdUrlColIdx = nextCol - 1; sheet.getRange(1, nextCol++).setValue('Markdown 檔案連結'); }
-  if (emailColIdx === -1) { emailColIdx = nextCol - 1; sheet.getRange(1, nextCol++).setValue('E-mail'); }
-  if (phoneColIdx === -1) { phoneColIdx = nextCol - 1; sheet.getRange(1, nextCol++).setValue('聯絡電話'); }
-
-  // 在迴圈外更新一次 headers 陣列，以確保後續的 values[i][colIdx] 能正確取值
-  const updatedHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-  mdUrlColIdx = updatedHeaders.indexOf('Markdown 檔案連結');
-  emailColIdx = updatedHeaders.indexOf('E-mail');
-  phoneColIdx = updatedHeaders.indexOf('聯絡電話');
+  if (mdUrlColIdx === -1) {
+    mdUrlColIdx = headers.length;
+    sheet.getRange(1, mdUrlColIdx + 1).setValue('Markdown 檔案連結');
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 已新增 'Markdown 檔案連結' 欄位。`);
+  }
 
   Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 轉換作業開始，共 ${values.length - 1} 筆資料 =======`);
 
@@ -720,20 +713,6 @@ function convertDocsToMarkdown() {
         sheet.getRange(rowNum, mdUrlColIdx + 1).setValue(mdFileUrl);
         Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功轉換檔案 "${fileName}"。`);
 
-        // --- [新增] 提取 E-mail 和聯絡電話 ---
-        const emailRegex = /(?:E-mail|Email)：\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/;
-        const phoneRegex = /聯絡電話：\s*([\d-]+)/;
-
-        const emailMatch = markdownContent.match(emailRegex);
-        const phoneMatch = markdownContent.match(phoneRegex);
-
-        if (emailMatch && emailMatch[1]) {
-          sheet.getRange(rowNum, emailColIdx + 1).setValue(emailMatch[1].trim());
-        }
-        if (phoneMatch && phoneMatch[1]) {
-          sheet.getRange(rowNum, phoneColIdx + 1).setValue(phoneMatch[1].trim());
-        }
-
       } else {
         throw new Error("Gemini API 回傳內容為空或轉換失敗。");
       }
@@ -747,6 +726,94 @@ function convertDocsToMarkdown() {
     }
   }
   Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 轉換作業結束 =======`);
+}
+
+/**
+ * [新增] 從 Markdown 檔案中提取聯絡資訊 (E-mail, 電話)
+ * 遍歷 '履歷清單'，讀取 Markdown 履歷內容，並解析出聯絡資訊填入對應欄位。
+ */
+function extractContactInfoFromMarkdown() {
+  const FUNCTION_NAME = 'extractContactInfoFromMarkdown';
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('履歷清單');
+  
+  if (!sheet) {
+    const errorMsg = '找不到名為 "履歷清單" 的工作表';
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
+
+  const dataRange = sheet.getDataRange();
+  const values = dataRange.getValues();
+  const headers = values[0];
+
+  // --- 檢查並獲取所需欄位的索引 ---
+  let mdUrlColIdx = headers.indexOf('Markdown 檔案連結');
+  let emailColIdx = headers.indexOf('E-mail');
+  let phoneColIdx = headers.indexOf('聯絡電話');
+
+  if (mdUrlColIdx === -1) {
+    const errorMsg = '找不到 "Markdown 檔案連結" 欄位。請先執行「依序轉換簡歷格式」。';
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    SpreadsheetApp.getUi().alert(errorMsg);
+    return;
+  }
+
+  // 動態新增不存在的欄位
+  let nextCol = headers.length + 1;
+  if (emailColIdx === -1) { emailColIdx = nextCol - 1; sheet.getRange(1, nextCol++).setValue('E-mail'); }
+  if (phoneColIdx === -1) { phoneColIdx = nextCol - 1; sheet.getRange(1, nextCol++).setValue('聯絡電話'); }
+
+  // 在迴圈外更新一次 headers 陣列，以確保後續的 values[i][colIdx] 能正確取值
+  const updatedHeaders = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  emailColIdx = updatedHeaders.indexOf('E-mail');
+  phoneColIdx = updatedHeaders.indexOf('聯絡電話');
+
+  Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 聯絡資訊提取作業開始，共 ${values.length - 1} 筆資料 =======`);
+
+  for (let i = 1; i < values.length; i++) {
+    const rowNum = i + 1;
+    const markdownUrl = values[i][mdUrlColIdx];
+    const emailCell = values[i][emailColIdx];
+    const phoneCell = values[i][phoneColIdx];
+
+    // 條件：有 Markdown 連結，且 E-mail 或電話欄位為空
+    if (markdownUrl && (!emailCell || !phoneCell)) {
+      try {
+        const idMatch = markdownUrl.match(/[-\w]{25,}/);
+        if (!idMatch) throw new Error("無法從 URL 中解析出檔案 ID。");
+        
+        const fileId = idMatch[0];
+        const markdownContent = DriveApp.getFileById(fileId).getBlob().getDataAsString('UTF-8');
+
+        if (!markdownContent) throw new Error("讀取的 Markdown 檔案內容為空。");
+
+        // --- 提取 E-mail 和聯絡電話 ---
+        const emailRegex = /(?:E-mail|Email)：\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/;
+        const phoneRegex = /聯絡電話：\s*([\d-]+)/;
+
+        const emailMatch = markdownContent.match(emailRegex);
+        const phoneMatch = markdownContent.match(phoneRegex);
+
+        if (emailMatch && emailMatch[1] && !emailCell) {
+          sheet.getRange(rowNum, emailColIdx + 1).setValue(emailMatch[1].trim());
+          Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功提取 E-mail。`);
+        }
+        if (phoneMatch && phoneMatch[1] && !phoneCell) {
+          sheet.getRange(rowNum, phoneColIdx + 1).setValue(phoneMatch[1].trim());
+          Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功提取聯絡電話。`);
+        }
+
+      } catch (e) {
+        const errorMessage = `提取失敗: ${e.toString()}`;
+        // 只在兩個欄位都為空時寫入錯誤訊息，避免覆蓋已有的資料
+        if (!emailCell && !phoneCell) {
+          sheet.getRange(rowNum, emailColIdx + 1).setValue(errorMessage);
+        }
+        Logger.log(`[ERROR] ${FUNCTION_NAME}: 第 ${rowNum} 列處理失敗。\n  URL: ${markdownUrl}\n  錯誤訊息: ${e.stack}`);
+      }
+    }
+  }
+  Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 聯絡資訊提取作業結束 =======`);
 }
 
 /**
