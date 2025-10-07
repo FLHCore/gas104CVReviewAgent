@@ -103,7 +103,7 @@ if [ "$SCRIPT_ID_ARG" == "release" ]; then
     ROOT_DIR=${ROOT_DIR_ARG:-"."}
 elif [ "$SCRIPT_ID_ARG" == "staging" ]; then
     echo -e "${YELLOW}偵測到 'staging' 環境，自動替換為 Staging Script ID。${NC}"
-    g_spreadsheet_filename="Agentic-HR 履歷小幫手-SPM"
+    g_spreadsheet_filename="HR 履歷小幫手-SPM104CV"
     SCRIPT_ID="1AU2q42-poSB057vk6i9uLIV93tA3DhF_btsNPbGNjy4SFCmotjJaxEPL"
     ROOT_DIR=${ROOT_DIR_ARG:-"."}
 elif [ "$SCRIPT_ID_ARG" == "devp" ]; then

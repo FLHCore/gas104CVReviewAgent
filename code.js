@@ -1426,6 +1426,14 @@ function sendInvitationEmails() {
   if (emailSubjectTemplate.includes('[您的公司名稱]') || emailBodyTemplate.includes('[您的公司名稱]')) {
     const logMsg = '偵測到您尚未設定面試邀請郵件範本 (INVITATION_EMAIL_SUBJECT, INVITATION_EMAIL_BODY)。系統已為您新增預設值，但需要您手動修改如 "[您的公司名稱]" 等資訊。郵件發送流程已中止。';
     Logger.log(`[WARN] ${FUNCTION_NAME}: ${logMsg}`);
+
+    // [新增] 發送郵件通知使用者
+    const recipient = Session.getActiveUser().getEmail();
+    const subject = `【HR履歷小幫手】【設定提醒】請更新您的面試邀請郵件範本`;
+    const spreadsheetUrl = SpreadsheetApp.getActiveSpreadsheet().getUrl();
+    const emailBody = `${logMsg}\n\n請點擊以下連結前往試算表，並在 [CONFIG] 工作表中更新範本內容：\n${spreadsheetUrl}`;
+    GmailApp.sendEmail(recipient, subject, emailBody);
+
     return;
   }
 
