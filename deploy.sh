@@ -94,26 +94,28 @@ echo "Step 3: 正在設定目標 Script ID 和根目錄..."
 SCRIPT_ID_ARG=${1}
 ROOT_DIR_ARG=${2}
 
+g_spreadsheet_filename=""
+
 if [ "$SCRIPT_ID_ARG" == "release" ]; then
     echo -e "${YELLOW}偵測到 'release' 環境，自動替換為 Release Script ID。${NC}"
-    // google filename : "HR 履歷小幫手 - 104CVReviewAgent"
+    g_spreadsheet_filename="HR 履歷小幫手 - 104CVReviewAgent"
     SCRIPT_ID="1e0cZMYPKz2zwHNzvtQFkwSL97U-IlTXcPoSS0SHuY-5GjGmcouuOsgLN"
     ROOT_DIR=${ROOT_DIR_ARG:-"."}
 elif [ "$SCRIPT_ID_ARG" == "staging" ]; then
     echo -e "${YELLOW}偵測到 'staging' 環境，自動替換為 Staging Script ID。${NC}"
-    // google filename : "Agentic-HR 履歷小幫手-SPM"
+    g_spreadsheet_filename="Agentic-HR 履歷小幫手-SPM"
     SCRIPT_ID="1AU2q42-poSB057vk6i9uLIV93tA3DhF_btsNPbGNjy4SFCmotjJaxEPL"
     ROOT_DIR=${ROOT_DIR_ARG:-"."}
 elif [ "$SCRIPT_ID_ARG" == "devp" ]; then
     echo -e "${YELLOW}偵測到 'devp' 環境，自動替換為 Development Script ID。${NC}"
-    // google filename : "[devp]-HR 履歷小幫手 - 104CVReviewAgent 的副本"
+    g_spreadsheet_filename="[devp]-HR 履歷小幫手 - 104CVReviewAgent 的副本"
     SCRIPT_ID="1-K7Q_0OvjoQAkNN4KiUB4c6KjJ0djcVI_UFAH57psMKEP57cxfvD8Z2X"
     ROOT_DIR=${ROOT_DIR_ARG:-"."}
 elif [ "$SCRIPT_ID_ARG" == "default" ] && [ -f .clasp.json ] && command -v jq &> /dev/null; then
     echo -e "${YELLOW}偵測到 'default' 關鍵字，將使用本地 .clasp.json 設定。${NC}"
     SCRIPT_ID=$(jq -r '.scriptId' .clasp.json)
     ROOT_DIR=$(jq -r '.rootDir' .clasp.json)
-    if [ -z ${SCRIPT_ID} ]; then
+    if [ -z "$SCRIPT_ID" ]; then
         echo -e "${RED}錯誤: 未提供 scriptId，且無法從本地 .clasp.json 讀取設定。${NC}"
         usage
     fi
@@ -131,6 +133,9 @@ if [ -z "$SCRIPT_ID" ] || [ "$SCRIPT_ID" == "null" ]; then
     usage
 fi
 
+if [ -n "$g_spreadsheet_filename" ]; then
+    echo "  - Google Sheet: $g_spreadsheet_filename"
+fi
 echo "  - Script ID: $SCRIPT_ID"
 echo "  - Root Dir:  $ROOT_DIR"
 
