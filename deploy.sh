@@ -111,6 +111,16 @@ elif [ "$SCRIPT_ID_ARG" == "devp" ]; then
     g_spreadsheet_filename="[devp]-HR 履歷小幫手 - 104CVReviewAgent 的副本"
     SCRIPT_ID="1-K7Q_0OvjoQAkNN4KiUB4c6KjJ0djcVI_UFAH57psMKEP57cxfvD8Z2X"
     ROOT_DIR=${ROOT_DIR_ARG:-"."}
+elif [ "$SCRIPT_ID_ARG" == "sales" ]; then
+    echo -e "${YELLOW}偵測到 'sales' 環境，自動替換為 Sales Script ID。${NC}"
+    g_spreadsheet_filename="HR 履歷小幫手 - 業務104CV"
+    SCRIPT_ID="1hLAmDWHenOmwLeoWSS6Mb0YwiqklUzi0Km-3iQx2cLzFi1ftespUcQEe"
+    ROOT_DIR=${ROOT_DIR_ARG:-"."}
+elif [ "$SCRIPT_ID_ARG" == "cs" ]; then
+    echo -e "${YELLOW}偵測到 'cs' 環境，自動替換為 Customer Service Script ID。${NC}"
+    g_spreadsheet_filename="HR 履歷小幫手 - 客服104CV"
+    SCRIPT_ID="1hhuhjpWn00QAla4cY8R5MPfiuE0X4wOTWNn6cuj9Lfiv_mR7IWXVPyW7"
+    ROOT_DIR=${ROOT_DIR_ARG:-"."}
 elif [ "$SCRIPT_ID_ARG" == "default" ] && [ -f .clasp.json ] && command -v jq &> /dev/null; then
     echo -e "${YELLOW}偵測到 'default' 關鍵字，將使用本地 .clasp.json 設定。${NC}"
     SCRIPT_ID=$(jq -r '.scriptId' .clasp.json)
