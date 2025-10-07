@@ -33,6 +33,12 @@
  * - [ ] **功能建議：** 增加支援從郵件附件 (如 .pdf, .docx) 中提取履歷內容的功能。
  */
 
+// =================================================================
+// SCRIPT CONFIGURATION
+// =================================================================
+const SCRIPT_VERSION = '2.0rc1';
+const SCRIPT_NAME = 'HR 履歷小幫手 - 104CVReviewAgent';
+
 
 // 當試算表被打開時，自動建立一個自訂選單
 function onOpen() {
@@ -53,8 +59,22 @@ function onOpen() {
       .addItem('手動執行DailyRoutine', 'dailyWorkflow')
       .addItem('清除履歷清單', 'clearAllResumes')
       .addItem('移除單一已處理ID', 'promptAndRemoveMessageId')
+      .addSeparator()
       .addItem('清除ScriptProperties', 'deleteScriptProperties')
+      .addItem('關於與版本', 'showVersionInfo')
       .addToUi();
+}
+
+/**
+ * [新增] 顯示目前的腳本版本資訊
+ */
+function showVersionInfo() {
+  const ui = SpreadsheetApp.getUi();
+  const title = `關於 ${SCRIPT_NAME}`;
+  const message = `目前版本：v${SCRIPT_VERSION}\n\n` +
+                `這是一個使用 Gemini API 協助 HR 篩選履歷的自動化工具。\n\n` +
+                `本工具由 Gemini Code Assist 輔助開發。`;
+  ui.alert(title, message, ui.ButtonSet.OK);
 }
 
 /**

@@ -37,12 +37,17 @@ Usage: ./deploy.sh [-h|--help] [scriptId] [rootDir]
   release     使用此關鍵字作為 scriptId，將自動部署到正式環境。
   staging     使用此關鍵字作為 scriptId，將自動部署到測試環境。
   devp        使用此關鍵字作為 scriptId，將自動部署到開發環境 (Development)。
+  sales       使用此關鍵字作為 scriptId，將自動部署到業務環境。
+  cs          使用此關鍵字作為 scriptId，將自動部署到客服環境。
 
 選項:
   -h, --help  顯示此說明訊息並結束。
 
 範例:
-  # 明確指定使用本地 .clasp.json 的設定
+  # 部署到開發環境
+  ./deploy.sh devp
+
+  # 強制使用本地 .clasp.json 的設定
   ./deploy.sh default
 
   # 指定 scriptId 和 rootDir 進行部署
