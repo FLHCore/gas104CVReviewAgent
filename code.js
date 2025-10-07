@@ -1396,9 +1396,7 @@ function sendInvitationEmails() {
   const defaultSubject = '關於 [您的公司名稱] [職缺名稱] 職位的面試邀請 - {{應徵者姓名}}';
   const defaultBody = `親愛的 {{應徵者姓名}} 您好：
 
-感謝您應徵 [您的公司名稱] 的 [職缺名稱] 職位。
-
-我們在仔細閱讀您的履歷後，對您的專業背景與經歷留下了深刻的印象，認為您非常符合我們的需求。因此，我們誠摯地邀請您進入下一階段的面試流程，讓我們能有更深入的交流。
+我們在仔細閱讀您的履歷後，對您的專業背景與經歷留下了深刻的印象，認為您非常符合我們的 [職缺名稱] 職缺需求。因此，我們誠摯地邀請您進入下一階段的面試流程，讓我們能有更深入的交流。
 
 請問您下週有哪些時段方便進行線上面談呢？
 
@@ -1465,6 +1463,7 @@ function sendInvitationEmails() {
 
           if (!recipientEmail || recipientEmail === '[N/A]') {
             Logger.log(`[WARN] ${FUNCTION_NAME}: 第 ${rowNum} 列分數達標但缺少有效的 E-mail 地址，無法發送邀請。`);
+            sheet.getRange(rowNum, invitationSentColIdx + 1).setValue('缺少E-mail');
             continue;
           }
 
