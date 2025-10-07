@@ -96,14 +96,17 @@ ROOT_DIR_ARG=${2}
 
 if [ "$SCRIPT_ID_ARG" == "release" ]; then
     echo -e "${YELLOW}偵測到 'release' 環境，自動替換為 Release Script ID。${NC}"
+    // google filename : "HR 履歷小幫手 - 104CVReviewAgent"
     SCRIPT_ID="1e0cZMYPKz2zwHNzvtQFkwSL97U-IlTXcPoSS0SHuY-5GjGmcouuOsgLN"
     ROOT_DIR=${ROOT_DIR_ARG:-"."}
 elif [ "$SCRIPT_ID_ARG" == "staging" ]; then
     echo -e "${YELLOW}偵測到 'staging' 環境，自動替換為 Staging Script ID。${NC}"
+    // google filename : "Agentic-HR 履歷小幫手-SPM"
     SCRIPT_ID="1AU2q42-poSB057vk6i9uLIV93tA3DhF_btsNPbGNjy4SFCmotjJaxEPL"
     ROOT_DIR=${ROOT_DIR_ARG:-"."}
 elif [ "$SCRIPT_ID_ARG" == "devp" ]; then
     echo -e "${YELLOW}偵測到 'devp' 環境，自動替換為 Development Script ID。${NC}"
+    // google filename : "[devp]-HR 履歷小幫手 - 104CVReviewAgent 的副本"
     SCRIPT_ID="1-K7Q_0OvjoQAkNN4KiUB4c6KjJ0djcVI_UFAH57psMKEP57cxfvD8Z2X"
     ROOT_DIR=${ROOT_DIR_ARG:-"."}
 elif [ "$SCRIPT_ID_ARG" == "default" ] && [ -f .clasp.json ] && command -v jq &> /dev/null; then
