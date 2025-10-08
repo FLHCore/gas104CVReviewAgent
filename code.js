@@ -36,7 +36,7 @@
 // =================================================================
 // SCRIPT CONFIGURATION
 // =================================================================
-const SCRIPT_VERSION = '2.0rc1';
+const SCRIPT_VERSION = '2.0.2';
 const SCRIPT_NAME = 'HR 履歷小幫手 - 104CVReviewAgent';
 
 
