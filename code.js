@@ -87,29 +87,33 @@ function dailyWorkflow() {
   Logger.log(`======= [開始] ${FUNCTION_NAME} 每日自動化履歷處理流程 =======`);
   
   try {
-    Logger.log("步驟 1/5: 更新郵箱簡歷清單 (mainProcessResumes)...");
+    Logger.log("步驟 1/7: 更新郵箱簡歷清單 (mainProcessResumes)...");
     mainProcessResumes();
-    Logger.log("步驟 1/5: 完成。");
+    Logger.log("步驟 1/7: 完成。");
 
-    Logger.log("步驟 2/5: 依序儲存郵箱簡歷為 HTML (saveEmailAsHtmlFile)...");
+    Logger.log("步驟 2/7: 依序儲存郵箱簡歷為 HTML (saveEmailAsHtmlFile)...");
     saveEmailAsHtmlFile();
-    Logger.log("步驟 2/5: 完成。");
+    Logger.log("步驟 2/7: 完成。");
 
-    Logger.log("步驟 3/5: 依序轉換簡歷格式為 Markdown (convertDocsToMarkdown)...");
+    Logger.log("步驟 3/7: 依序轉換簡歷格式為 Markdown (convertDocsToMarkdown)...");
     convertDocsToMarkdown();
-    Logger.log("步驟 3/5: 完成。");
+    Logger.log("步驟 3/7: 完成。");
 
-    Logger.log("步驟 4/5: 依序評分簡歷 (evaluateResumes)...");
+    Logger.log("步驟 4/7: 讀取 E-mail 與聯絡電話 (extractContactInfoFromMarkdown)...");
+    extractContactInfoFromMarkdown();
+    Logger.log("步驟 4/7: 完成。");
+
+    Logger.log("步驟 5/7: 依序評分簡歷 (evaluateResumes)...");
     evaluateResumes();
-    Logger.log("步驟 4/5: 完成。");
+    Logger.log("步驟 5/7: 完成。");
 
-    Logger.log("步驟 5/6 (skip): 依序發送高分履歷面試邀請 (sendInvitationEmails)...");
+    Logger.log("步驟 6/7: 依序發送高分履歷面試邀請 (sendInvitationEmails)...");
     sendInvitationEmails();
-    Logger.log("步驟 5/6: 完成。");
+    Logger.log("步驟 6/7: 完成。");
 
-    Logger.log("步驟 6/6: 產生並寄送今日簡歷快報 (generateDailyCVReviewReport_v4)...");
+    Logger.log("步驟 7/7: 產生並寄送今日簡歷快報 (generateDailyCVReviewReport_v4)...");
     generateDailyCVReviewReport_v4();
-    Logger.log("步驟 6/6: 完成。");
+    Logger.log("步驟 7/7: 完成。");
 
   } catch (e) {
     const recipient = Session.getActiveUser().getEmail();
