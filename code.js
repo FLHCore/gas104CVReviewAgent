@@ -52,7 +52,6 @@ function onOpen() {
       .addItem('更新郵箱簡歷清單', 'mainProcessResumes')
       .addItem('依序儲存郵箱簡歷', 'saveEmailAsHtmlFile')
       .addItem('依序轉換簡歷格式', 'convertDocsToMarkdown')
-      .addSeparator() // [新增]
       .addItem('讀取 E-mail 與聯絡電話', 'extractContactInfoFromMarkdown') // [新增]
       .addItem('依序評分簡歷', 'evaluateResumes') 
       .addItem('依序發送面試邀請郵件', 'sendInvitationEmails')
@@ -64,6 +63,8 @@ function onOpen() {
       .addItem('清除履歷清單', 'clearAllResumes')
       .addItem('移除單一已處理ID', 'promptAndRemoveMessageId')
       .addItem('測試 GCP Bucket 連線', 'testGcpBucketConnection') // [新增]
+      .addItem('測試上傳檔案至 GCP Bucket', 'testUploadToGcpBucket') // [新增]
+      .addItem('測試 Drive 檔案讀取權限', 'testDriveFileAccess') // [新增]
       .addSeparator()
       .addItem('清除ScriptProperties', 'deleteScriptProperties')
       .addItem('關於與版本', 'showVersionInfo')
@@ -1768,6 +1769,163 @@ function testGcpBucketConnection() {
     }
   } catch (e) {
     const errorMsg = `執行測試時發生例外錯誤: ${e.toString()}\n${e.stack}`;
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    ui.alert(errorMsg);
+  }
+}
+
+/**
+ * [新增][測試] 測試對指定的 Google Drive 檔案是否有讀取權限。
+ * 此函式用於獨立診斷 DriveApp.getFileById 的權限問題。
+ */
+function testDriveFileAccess() {
+  const FUNCTION_NAME = 'testDriveFileAccess';
+  const ui = SpreadsheetApp.getUi();
+
+  // 1. 讓使用者輸入要測試的檔案 ID
+  const responsePrompt = ui.prompt(
+    'Google Drive 檔案讀取權限測試',
+    '請貼上您要測試的 Google Drive 檔案 ID：',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (responsePrompt.getSelectedButton() !== ui.Button.OK) {
+    ui.alert('操作已取消。');
+    return;
+  }
+
+  const fileId = responsePrompt.getResponseText().trim();
+  if (!fileId) {
+    ui.alert('您沒有輸入任何檔案 ID。');
+    return;
+  }
+
+  // 2. 嘗試讀取檔案並回報結果
+  try {
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 正在嘗試讀取 Google Drive 檔案 (ID: ${fileId})`);
+    const file = DriveApp.getFileById(fileId);
+    const fileName = file.getName(); // 如果 getFileById 成功，這行也會成功
+
+    const successMsg = `✅ 存取成功！\n\n您可以正常讀取檔案：\n"${fileName}" (ID: ${fileId})`;
+    Logger.log(`[SUCCESS] ${FUNCTION_NAME}: ${successMsg}`);
+    ui.alert('檔案讀取權限測試', successMsg, ui.ButtonSet.OK);
+
+  } catch (e) {
+    const errorMsg = `❌ 存取失敗！\n\n無法讀取檔案 ID: ${fileId}\n\n` +
+                   `請檢查：\n` +
+                   `1. 檔案 ID 是否正確。\n` +
+                   `2. 執行此腳本的帳號是否擁有該檔案的「至少檢視」權限。\n` +
+                   `3. 專案是否已取得 'drive' 或 'drive.readonly' 授權。\n\n` +
+                   `錯誤詳情:\n${e.toString()}`;
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    ui.alert('檔案讀取權限測試', errorMsg, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * [修改][測試] 上傳指定的 Google Drive 檔案到 GCP Cloud Storage Bucket。
+ * 此函式用於獨立測試上傳功能是否正常，並支援大檔案的可續傳上傳 (Resumable Upload)。
+ */
+function testUploadToGcpBucket() {
+  const FUNCTION_NAME = 'testUploadToGcpBucket';
+  const ui = SpreadsheetApp.getUi();
+
+  // 1. 讓使用者輸入要測試的檔案 ID
+  const responsePrompt = ui.prompt(
+    'GCP 上傳測試',
+    '請貼上您要測試上傳的 Google Drive 檔案 ID：',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (responsePrompt.getSelectedButton() !== ui.Button.OK) {
+    ui.alert('操作已取消。');
+    return;
+  }
+
+  const fileId = responsePrompt.getResponseText().trim();
+  if (!fileId) {
+    ui.alert('您沒有輸入任何檔案 ID。');
+    return;
+  }
+
+  // 2. 獲取 GCP Bucket 名稱
+  const scriptProperties = PropertiesService.getScriptProperties();
+  const bucketName = scriptProperties.getProperty('gcpBucketId');
+
+  if (!bucketName) {
+    const errorMsg = '錯誤：尚未設定 GCP Bucket Name。請從選單「設定 GCP Bucket Name」進行設定。';
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    ui.alert(errorMsg);
+    return;
+  }
+
+  try {
+    // 3. 獲取 Google Drive 檔案資訊
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 正在讀取 Google Drive 檔案 (ID: ${fileId})`);
+    const file = DriveApp.getFileById(fileId);
+    const blob = file.getBlob();
+    const fileName = file.getName();
+    const mimeType = blob.getContentType();
+    const fileSize = blob.getBytes().length;
+
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 檔案名稱: "${fileName}", 檔案大小: ${fileSize} bytes`);
+
+    // 4. 初始化可續傳上傳 (Resumable Upload)
+    const token = ScriptApp.getOAuthToken();
+    const initiationUrl = `https://storage.googleapis.com/upload/storage/v1/b/${bucketName}/o?uploadType=resumable`;
+
+    const initiationOptions = {
+      'method': 'post',
+      'headers': {
+        'Authorization': `Bearer ${token}`,
+        'X-Upload-Content-Type': mimeType,
+        'X-Upload-Content-Length': fileSize
+      },
+      'contentType': 'application/json; charset=utf-8',
+      'payload': JSON.stringify({ 'name': fileName }),
+      'muteHttpExceptions': true
+    };
+
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 正在初始化可續傳上傳...`);
+    const initiationResponse = UrlFetchApp.fetch(initiationUrl, initiationOptions);
+    const initiationResponseCode = initiationResponse.getResponseCode();
+
+    if (initiationResponseCode !== 200) {
+      throw new Error(`初始化上傳失敗 (HTTP ${initiationResponseCode}): ${initiationResponse.getContentText()}`);
+    }
+
+    const sessionUri = initiationResponse.getHeaders()['Location'];
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 成功獲取上傳 Session URI: ${sessionUri}`);
+
+    // 5. 執行檔案內容上傳
+    const uploadOptions = {
+      'method': 'put',
+      'headers': {
+        'Content-Length': fileSize
+      },
+      'contentType': mimeType,
+      'payload': blob,
+      'muteHttpExceptions': true
+    };
+
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 正在上傳檔案 "${fileName}" (${fileSize} bytes) 至 Bucket: "${bucketName}"...`);
+    const uploadResponse = UrlFetchApp.fetch(sessionUri, uploadOptions);
+    const uploadResponseCode = uploadResponse.getResponseCode();
+    const uploadResponseBody = uploadResponse.getContentText();
+
+    // 6. 處理上傳結果
+    if (uploadResponseCode === 200 || uploadResponseCode === 201) {
+      const objectUrl = `https://storage.googleapis.com/${bucketName}/${fileName}`;
+      const successMsg = `✅ 上傳成功！\n\n檔案 "${fileName}" 已成功上傳至 GCP Bucket "${bucketName}"。\n\n物件連結:\n${objectUrl}`;
+      Logger.log(`[SUCCESS] ${FUNCTION_NAME}: ${successMsg}`);
+      ui.alert('GCP Bucket 上傳測試', successMsg, ui.ButtonSet.OK);
+    } else {
+      const errorMsg = `❌ 上傳失敗！ (HTTP ${uploadResponseCode})\n\n請檢查服務帳號是否具有該 Bucket 的 "儲存空間物件建立者" (Storage Object Creator) 或更高權限。\n\n錯誤詳情:\n${uploadResponseBody}`;
+      Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+      ui.alert('GCP Bucket 上傳測試', errorMsg, ui.ButtonSet.OK);
+    }
+  } catch (e) {
+    const errorMsg = `執行上傳時發生例外錯誤: ${e.toString()}\n\n請檢查：\n1. 檔案 ID 是否正確且您有權限存取。\n2. 網路連線是否穩定。\n\n詳細資訊:\n${e.stack}`;
     Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
     ui.alert(errorMsg);
   }
