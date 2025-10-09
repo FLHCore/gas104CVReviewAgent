@@ -36,7 +36,7 @@
 // =================================================================
 // SCRIPT CONFIGURATION
 // =================================================================
-const SCRIPT_VERSION = '2.0.2';
+const SCRIPT_VERSION = '2.1.0';
 const SCRIPT_NAME = 'HR 履歷小幫手 - 104CVReviewAgent';
 
 
@@ -55,6 +55,8 @@ function onOpen() {
       .addItem('依序評分簡歷', 'evaluateResumes') 
       .addItem('依序發送面試邀請郵件', 'sendInvitationEmails')
       .addItem('今日簡歷快報', 'generateDailyCVReviewReport_v4')
+      .addSeparator()
+      .addItem('更新年度簡歷清單', 'updateAnnualResumeList')
       .addSeparator() 
       .addItem('手動執行DailyRoutine', 'dailyWorkflow')
       .addItem('清除履歷清單', 'clearAllResumes')
@@ -1536,4 +1538,154 @@ function sendInvitationEmails() {
   } else {
     Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 作業結束，沒有找到需要建立新邀請草稿的履歷。 =======`);
   }
+}
+
+/**
+ * [新增] 更新年度履歷清單
+ * 搜尋過去一年內符合條件的履歷郵件，並將其資訊更新到 'YearCV' 工作表中。
+ * 此函式會分批次處理以避免 Gmail 查詢超時。
+ */
+function updateAnnualResumeList() {
+  const FUNCTION_NAME = 'updateAnnualResumeList';
+  const SPREADSHEET = SpreadsheetApp.getActiveSpreadsheet();
+  const SHEET_NAME = 'YearCV';
+  const ui = SpreadsheetApp.getUi();
+
+  Logger.log(`======= [開始] ${FUNCTION_NAME}: 更新年度履歷清單 =======`);
+
+  // 1. 檢查並建立工作表
+  let sheet = SPREADSHEET.getSheetByName(SHEET_NAME);
+  if (!sheet) {
+    sheet = SPREADSHEET.insertSheet(SHEET_NAME);
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 已建立新的工作表 "${SHEET_NAME}"。`);
+  }
+
+  // 4. 檢查並初始化欄位名稱
+  if (sheet.getLastRow() === 0) {
+    const headers = ['應徵者姓名', '郵件主旨', '收到日期', '郵件連結', '郵件ID'];
+    sheet.appendRow(headers);
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 已在 "${SHEET_NAME}" 工作表中加入標題列。`);
+  }
+
+  // 讀取工作表中已存在的 Message ID，用於去重
+  const existingIds = new Set();
+  let searchStartDate = null;
+  const lastRow = sheet.getLastRow();
+
+  if (lastRow > 1) {
+    // 假設 '郵件ID' 在第 5 欄 (E)
+    const idRange = sheet.getRange(2, 5, lastRow - 1, 1).getValues();
+    idRange.forEach(row => {
+      if (row[0]) existingIds.add(row[0].toString());
+    });
+
+    // [優化] 取得已存在資料的最後一個月份，作為增量更新的起點
+    const dateValues = sheet.getRange(2, 3, lastRow - 1, 1).getValues();
+    const timestamps = dateValues.flat()
+                                 .map(d => new Date(d).getTime())
+                                 .filter(t => !isNaN(t));
+    
+    if (timestamps.length > 0) {
+      const latestTimestamp = Math.max(...timestamps);
+      const latestDateInSheet = new Date(latestTimestamp);
+      // [優化] 將搜尋起點設為最後一筆資料的日期
+      searchStartDate = latestDateInSheet;
+      Logger.log(`[INFO] ${FUNCTION_NAME}: 找到 ${existingIds.size} 個已存在的履歷 ID。最後一筆資料日期為 ${Utilities.formatDate(latestDateInSheet, Session.getScriptTimeZone(), 'yyyy-MM-dd')}，將從該月份開始更新。`);
+    }
+  }
+
+  if (!searchStartDate) Logger.log(`[INFO] ${FUNCTION_NAME}: 找不到現有資料，將執行過去 12 個月的完整掃描。`);
+
+  // 2. 準備 Gmail 查詢條件
+  const baseQuery = getConfig('GMAIL_SEARCH_QUERY');
+  const labelNamesInput = getConfig('GMAIL_LABEL_NAME') || 'INBOX';
+  const labels = labelNamesInput.split(',').map(label => label.trim()).filter(Boolean);
+  let labelQuery = labels.length > 1 ? `label:{${labels.join(' OR ')}}` : `label:${labels[0] || 'INBOX'}`;
+
+  if (!baseQuery) {
+    const errorMsg = '錯誤：無法從 CONFIG 工作表讀取 "GMAIL_SEARCH_QUERY" 設定。';
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    ui.alert(errorMsg);
+    return;
+  }
+
+  const allNewResumes = [];
+
+  // 3. 分批次查詢郵件 (從今天往回掃描)
+  const today = new Date();
+  const twelveMonthsAgo = new Date(today.getFullYear() - 1, today.getMonth(), today.getDate());
+
+  // 決定最終的搜尋起點
+  const effectiveStartDate = searchStartDate || twelveMonthsAgo;
+
+  for (let i = 0; i < 12; i++) { // 最多掃描 12 個月
+    const endDate = new Date(today.getFullYear(), today.getMonth() - i + 1, 1);
+    const startDate = new Date(today.getFullYear(), today.getMonth() - i, 1);
+
+    // 如果這個月份的起始日已經早於我們的有效起點，就停止掃描
+    if (startDate < effectiveStartDate) {
+      Logger.log(`[INFO] ${FUNCTION_NAME}: 已掃描至 ${Utilities.formatDate(startDate, Session.getScriptTimeZone(), 'yyyy/MM/dd')}，早於有效起點，停止掃描。`);
+      break;
+    }
+
+    // 決定此次查詢的 after 參數
+    const queryStartDate = startDate > effectiveStartDate ? startDate : effectiveStartDate;
+    const startDateStr = Utilities.formatDate(queryStartDate, Session.getScriptTimeZone(), 'yyyy/MM/dd');
+    const endDateStr = Utilities.formatDate(endDate, Session.getScriptTimeZone(), 'yyyy/MM/dd');
+
+    const dateQuery = `after:${startDateStr} before:${endDateStr}`;
+    const searchQuery = `${baseQuery} ${labelQuery} ${dateQuery}`;
+
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 正在搜尋 ${startDateStr} 到 ${endDateStr} 的郵件...`);
+    
+    try {
+      const threads = GmailApp.search(searchQuery, 0, 500); // 限制每次最多處理 500 個 thread
+      Logger.log(`[INFO] ${FUNCTION_NAME}: 找到 ${threads.length} 個郵件 thread。`);
+
+      threads.forEach(thread => {
+        const message = thread.getMessages()[0];
+        const messageId = message.getId();
+
+        if (!existingIds.has(messageId)) {
+          const subject = message.getSubject();
+          const receivedDate = message.getDate();
+          const messageUrl = thread.getPermalink();
+
+          // 複用 searchAndProcessResumes 中的姓名解析邏輯
+          let name = '無法解析姓名';
+          let nameMatch = subject.match(/^(.*?)履歷表/);
+          if (nameMatch && nameMatch[1]) {
+            name = nameMatch[1].trim();
+          } else {
+            nameMatch = subject.match(/】(.*?)\(/);
+            if (nameMatch && nameMatch[1]) {
+              name = nameMatch[1].trim();
+            }
+          }
+
+          allNewResumes.push([name, subject, receivedDate, messageUrl, messageId]);
+          existingIds.add(messageId); // 加入 Set 避免在同一次執行中重複添加
+        }
+      });
+    } catch (e) {
+      Logger.log(`[ERROR] ${FUNCTION_NAME}: 搜尋郵件時發生錯誤: ${e.toString()}`);
+      // 即使某個月份出錯，也繼續處理下個月份
+    }
+  }
+
+  // 將新找到的郵件資訊寫入工作表
+  if (allNewResumes.length > 0) {
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 共找到 ${allNewResumes.length} 封新履歷，正在寫入工作表...`);
+    const startRow = sheet.getLastRow() + 1;
+    sheet.getRange(startRow, 1, allNewResumes.length, allNewResumes[0].length).setValues(allNewResumes);
+    const successMsg = `年度履歷清單更新完成！共新增 ${allNewResumes.length} 筆履歷。`;
+    Logger.log(`[SUCCESS] ${FUNCTION_NAME}: ${successMsg}`);
+    ui.alert(successMsg);
+  } else {
+    const infoMsg = '年度履歷清單已是最新狀態，沒有找到新的履歷。';
+    Logger.log(`[INFO] ${FUNCTION_NAME}: ${infoMsg}`);
+    ui.alert(infoMsg);
+  }
+
+  Logger.log(`======= [結束] ${FUNCTION_NAME}: 更新年度履歷清單 =======`);
 }
