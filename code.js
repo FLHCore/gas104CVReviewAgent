@@ -1775,48 +1775,56 @@ function testGcpBucketConnection() {
 }
 
 /**
- * [新增][測試] 測試對指定的 Google Drive 檔案是否有讀取權限。
- * 此函式用於獨立診斷 DriveApp.getFileById 的權限問題。
+ * [修改][測試] 測試對指定的 Google Drive 檔案是否有讀取權限。
+ * 此函式使用 Drive (Advanced Service) 來獨立診斷檔案存取權限問題，
+ * 因為它能提供比 DriveApp 更詳細的錯誤資訊。
  */
 function testDriveFileAccess() {
   const FUNCTION_NAME = 'testDriveFileAccess';
   const ui = SpreadsheetApp.getUi();
-
-  // 1. 讓使用者輸入要測試的檔案 ID
+ 
   const responsePrompt = ui.prompt(
     'Google Drive 檔案讀取權限測試',
     '請貼上您要測試的 Google Drive 檔案 ID：',
     ui.ButtonSet.OK_CANCEL
   );
-
+ 
   if (responsePrompt.getSelectedButton() !== ui.Button.OK) {
     ui.alert('操作已取消。');
     return;
   }
-
+ 
   const fileId = responsePrompt.getResponseText().trim();
   if (!fileId) {
     ui.alert('您沒有輸入任何檔案 ID。');
     return;
   }
-
-  // 2. 嘗試讀取檔案並回報結果
+ 
   try {
-    Logger.log(`[INFO] ${FUNCTION_NAME}: 正在嘗試讀取 Google Drive 檔案 (ID: ${fileId})`);
-    const file = DriveApp.getFileById(fileId);
-    const fileName = file.getName(); // 如果 getFileById 成功，這行也會成功
-
-    const successMsg = `✅ 存取成功！\n\n您可以正常讀取檔案：\n"${fileName}" (ID: ${fileId})`;
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 正在使用 Drive (Advanced Service) 嘗試讀取檔案 (ID: ${fileId})`);
+    // 使用 Drive Advanced Service，它可以提供更詳細的錯誤資訊
+    const file = Drive.Files.get(fileId, { fields: "id, name" });
+ 
+    const successMsg = `✅ 存取成功！\n\n您可以正常讀取檔案：\n"${file.name}" (ID: ${file.id})`;
     Logger.log(`[SUCCESS] ${FUNCTION_NAME}: ${successMsg}`);
     ui.alert('檔案讀取權限測試', successMsg, ui.ButtonSet.OK);
-
+ 
   } catch (e) {
+    let detailedError = e.toString();
+    // 嘗試解析 Google API 錯誤以獲得更友善的訊息
+    if (e.message && e.message.includes('GoogleJsonResponseException')) {
+      const errorDetails = JSON.parse(e.message.replace('GoogleJsonResponseException: ', ''));
+      if (errorDetails.error && errorDetails.error.message) {
+        detailedError = `(${errorDetails.error.code}) ${errorDetails.error.message}`;
+      }
+    }
+ 
     const errorMsg = `❌ 存取失敗！\n\n無法讀取檔案 ID: ${fileId}\n\n` +
                    `請檢查：\n` +
                    `1. 檔案 ID 是否正確。\n` +
                    `2. 執行此腳本的帳號是否擁有該檔案的「至少檢視」權限。\n` +
-                   `3. 專案是否已取得 'drive' 或 'drive.readonly' 授權。\n\n` +
-                   `錯誤詳情:\n${e.toString()}`;
+                   `3. 專案是否已啟用 Drive Advanced Service 並取得 'drive' 或 'drive.readonly' 授權。\n\n` +
+                   `錯誤詳情:\n${detailedError}`;
     Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
     ui.alert('檔案讀取權限測試', errorMsg, ui.ButtonSet.OK);
   }
@@ -1900,9 +1908,7 @@ function testUploadToGcpBucket() {
     // 5. 執行檔案內容上傳
     const uploadOptions = {
       'method': 'put',
-      'headers': {
-        'Content-Length': fileSize
-      },
+      'headers': {}, // 移除手動設定的 Content-Length，讓 UrlFetchApp 自動處理
       'contentType': mimeType,
       'payload': blob,
       'muteHttpExceptions': true
