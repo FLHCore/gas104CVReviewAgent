@@ -43,7 +43,7 @@ const SCRIPT_NAME = 'HR 履歷小幫手 - 104CVReviewAgent';
 // 當試算表被打開時，自動建立一個自訂選單
 function onOpen() {
   SpreadsheetApp.getUi()
-      .createMenu('履歷小幫手')
+      .createMenu(`履歷小幫手-v${SCRIPT_VERSION}`)
       .addItem('設定 GDrive Folder ID', 'setFolderId')
       .addItem('設定 Gemini API KEY', 'setGeminiApiKey')
       .addItem('設定簡歷快報收件人', 'setCVReportReceiversEmail')
