@@ -36,7 +36,7 @@
 // =================================================================
 // SCRIPT CONFIGURATION
 // =================================================================
-const SCRIPT_VERSION = '2.1.0';
+const SCRIPT_VERSION = '2.1.1';
 const SCRIPT_NAME = 'HR 履歷小幫手 - 104CVReviewAgent';
 
 
@@ -45,12 +45,14 @@ function onOpen() {
   SpreadsheetApp.getUi()
       .createMenu(`履歷小幫手-v${SCRIPT_VERSION}`)
       .addItem('設定 GDrive Folder ID', 'setFolderId')
+      .addItem('設定 GCP Bucket Name', 'setGcpBucketId') // [新增]
       .addItem('設定 Gemini API KEY', 'setGeminiApiKey')
       .addItem('設定簡歷快報收件人', 'setCVReportReceiversEmail')
       .addSeparator()
       .addItem('更新郵箱簡歷清單', 'mainProcessResumes')
       .addItem('依序儲存郵箱簡歷', 'saveEmailAsHtmlFile')
       .addItem('依序轉換簡歷格式', 'convertDocsToMarkdown')
+      .addSeparator() // [新增]
       .addItem('讀取 E-mail 與聯絡電話', 'extractContactInfoFromMarkdown') // [新增]
       .addItem('依序評分簡歷', 'evaluateResumes') 
       .addItem('依序發送面試邀請郵件', 'sendInvitationEmails')
@@ -61,6 +63,7 @@ function onOpen() {
       .addItem('手動執行DailyRoutine', 'dailyWorkflow')
       .addItem('清除履歷清單', 'clearAllResumes')
       .addItem('移除單一已處理ID', 'promptAndRemoveMessageId')
+      .addItem('測試 GCP Bucket 連線', 'testGcpBucketConnection') // [新增]
       .addSeparator()
       .addItem('清除ScriptProperties', 'deleteScriptProperties')
       .addItem('關於與版本', 'showVersionInfo')
@@ -187,6 +190,34 @@ function setFolderId() {
     }
   }
 }
+
+/**
+ * [新增] 設定並儲存 GCP Cloud Storage Bucket Name
+ */
+function setGcpBucketId() {
+  const ui = SpreadsheetApp.getUi();
+  const scriptProperties = PropertiesService.getScriptProperties();
+  const currentBucketId = scriptProperties.getProperty('gcpBucketId') || '';
+  
+  // 提示使用者輸入
+  const response = ui.prompt(
+    '設定 GCP Bucket Name',
+    `目前設定的 GCP Bucket Name 為：\n${currentBucketId}\n\n若要更新，請貼上新的 Bucket Name：`,
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  // 檢查使用者是否按下 "OK" 且有輸入內容
+  if (response.getSelectedButton() == ui.Button.OK) {
+    const bucketId = response.getResponseText().trim();
+    if (bucketId) {
+      scriptProperties.setProperty('gcpBucketId', bucketId);
+      ui.alert(`設定成功！新的 GCP Bucket Name 已儲存：\n${bucketId}`);
+    } else {
+      ui.alert('您沒有輸入任何內容。');
+    }
+  }
+}
+
 
 /**
  * 設定簡歷快報收件人
@@ -408,13 +439,14 @@ function deleteScriptProperties() {
   const ui = SpreadsheetApp.getUi();
   const response = ui.prompt(
     '確認清除設定？',
-    '您確定要清除已儲存的 Google Drive Folder ID, Gemini API KEY, 以及簡歷快報收件人設定嗎？\n此操作無法復原。',
+    '您確定要清除已儲存的 Google Drive Folder ID, GCP Bucket Name, Gemini API KEY, 以及簡歷快報收件人設定嗎？\n此操作無法復原。',
     ui.ButtonSet.OK_CANCEL);
 
-  if (response == ui.Button.OK) {
+  if (response.getSelectedButton() == ui.Button.OK) {
     const scriptProperties = PropertiesService.getScriptProperties();
     scriptProperties.deleteProperty('folderId');
     scriptProperties.deleteProperty('geminiApiKey');
+    scriptProperties.deleteProperty('gcpBucketId');
     scriptProperties.deleteProperty('cvReportReceiversEmail');
     
     Logger.log('已成功清除 folderId, geminiApiKey, cvReportReceiversEmail 等 Script Properties。');
@@ -1688,4 +1720,55 @@ function updateAnnualResumeList() {
   }
 
   Logger.log(`======= [結束] ${FUNCTION_NAME}: 更新年度履歷清單 =======`);
+}
+
+/**
+ * [新增] 測試與 GCP Cloud Storage Bucket 的連線
+ * 此函式會嘗試列出指定 Bucket 中的物件，以確認權限與設定是否正確。
+ * 需要在 appsscript.json 中設定 "https://www.googleapis.com/auth/devstorage.read_only" 權限。
+ */
+function testGcpBucketConnection() {
+  const FUNCTION_NAME = 'testGcpBucketConnection';
+  const ui = SpreadsheetApp.getUi();
+  const scriptProperties = PropertiesService.getScriptProperties();
+  const bucketName = scriptProperties.getProperty('gcpBucketId');
+
+  if (!bucketName) {
+    const errorMsg = '錯誤：尚未設定 GCP Bucket Name。請從選單設定。';
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    ui.alert(errorMsg);
+    return;
+  }
+
+  try {
+    const token = ScriptApp.getOAuthToken();
+    const url = `https://storage.googleapis.com/storage/v1/b/${bucketName}/o`;
+
+    const options = {
+      'method': 'get',
+      'headers': {
+        'Authorization': `Bearer ${token}`
+      },
+      'muteHttpExceptions': true
+    };
+
+    Logger.log(`[INFO] ${FUNCTION_NAME}: 正在嘗試連線至 Bucket: ${bucketName}`);
+    const response = UrlFetchApp.fetch(url, options);
+    const responseCode = response.getResponseCode();
+    const responseBody = response.getContentText();
+
+    if (responseCode === 200) {
+      const successMsg = `✅ 連線成功！\n\n成功存取 GCP Bucket "${bucketName}"。\n\n系統可以正常讀取 Bucket 中的物件列表。`;
+      Logger.log(`[SUCCESS] ${FUNCTION_NAME}: ${successMsg}`);
+      ui.alert('GCP Bucket 連線測試', successMsg, ui.ButtonSet.OK);
+    } else {
+      const errorMsg = `❌ 連線失敗！ (HTTP ${responseCode})\n\n無法存取 GCP Bucket "${bucketName}"。\n\n請確認：\n1. Bucket 名稱是否正確。\n2. 此 Apps Script 專案的服務帳號是否具有該 Bucket 的 "儲存空間物件檢視者" (Storage Object Viewer) 權限。\n\n錯誤詳情:\n${responseBody}`;
+      Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+      ui.alert('GCP Bucket 連線測試', errorMsg, ui.ButtonSet.OK);
+    }
+  } catch (e) {
+    const errorMsg = `執行測試時發生例外錯誤: ${e.toString()}\n${e.stack}`;
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    ui.alert(errorMsg);
+  }
 }
