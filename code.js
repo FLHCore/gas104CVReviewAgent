@@ -128,7 +128,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
       .createMenu(`履歷小幫手-v${SCRIPT_VERSION}`)
       .addItem('設定 GDrive Folder ID', 'setFolderId')
-      .addItem('設定 GCP Bucket Name', 'setGcpBucketId') // [新增]
+      // .addItem('設定 GCP Bucket Name', 'setGcpBucketId') // [新增]
       .addItem('設定 Gemini API KEY', 'setGeminiApiKey')
       .addItem('設定簡歷快報收件人', 'setCVReportReceiversEmail')
       .addSeparator()
@@ -141,14 +141,14 @@ function onOpen() {
       .addItem('依序發送面試邀請郵件', 'sendInvitationEmails')
       .addItem('今日簡歷快報', 'generateDailyCVReviewReport_v4')
       .addSeparator()
-      .addItem('更新年度簡歷清單', 'updateAnnualResumeList')
-      .addSeparator() 
+      // .addItem('更新年度簡歷清單', 'updateAnnualResumeList') // [新增]
+      // .addSeparator() // [新增]
       .addItem('手動執行DailyRoutine', 'dailyWorkflow')
       .addItem('清除履歷清單', 'clearAllResumes')
       .addItem('移除單一已處理ID', 'promptAndRemoveMessageId')
-      .addItem('測試 GCP Bucket 連線', 'testGcpBucketConnection') // [新增]
-      .addItem('測試上傳檔案至 GCP Bucket', 'testUploadToGcpBucket') // [新增]
-      .addItem('測試 Drive 檔案讀取權限', 'testDriveFileAccess') // [新增]
+      // .addItem('測試 GCP Bucket 連線', 'testGcpBucketConnection') // [新增]
+      // .addItem('測試上傳檔案至 GCP Bucket', 'testUploadToGcpBucket') // [新增]
+      // .addItem('測試 Drive 檔案讀取權限', 'testDriveFileAccess') // [新增]
       .addSeparator()
       .addItem('清除ScriptProperties', 'deleteScriptProperties')
       .addItem('關於與版本', 'showVersionInfo')
