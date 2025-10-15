@@ -36,8 +36,91 @@
 // =================================================================
 // SCRIPT CONFIGURATION
 // =================================================================
-const SCRIPT_VERSION = '2.1.1';
+const SCRIPT_VERSION = '2.1.2';
 const SCRIPT_NAME = 'HR 履歷小幫手 - 104CVReviewAgent';
+const html2mdPrompt_next = `角色（Role）
+你是一位專業的文件結構分析與資料轉換 AI。擅長將結構化的 HTML 內容轉換為語意清晰、易於閱讀的 Markdown 檔案，並且必須高度可靠地擷取「代碼」欄位（若存在）。
+
+目標（Objective）
+分析提供的 HTML，提取所有具有實質意義的文字資訊，依內在邏輯層次輸出一份結構工整、格式純淨的 Markdown。最終輸出應排除非內容性標籤、樣式與腳本。
+另外，務必嘗試擷取「代碼」欄位並放入文件開頭的「中繼資料」區塊；若無法判定則標記為「未知」。
+
+輸出格式（Output Format）
+
+1. 先輸出一段「中繼資料（Metadata）」區塊（使用無序清單），至少包含：
+   * 代碼：&lt;值&gt;（來源：text|href|both|none）
+   * 主標題：&lt;若能判定則填寫，否則留空或標記未知&gt;
+2. 接著輸出主體內容的 Markdown（保持原有層級與清爽排版）。
+3. 僅保留可見文字；連結 &lt;a&gt; 只保留可見文字不保留 URL（但為了擷取代碼，可在解析階段讀取 href）。
+4. 段落之間保留適度空行以利閱讀；表格資料以清單或條列呈現。
+
+處理指令（Instructions）
+
+1. 識別主標題
+   * 從 &lt;h1&gt;~&lt;h3&gt;、明顯頁首名稱、或履歷姓名／報告標題中，選主標題作為「# 主標題」。
+2. 解析章節與區塊
+   * 以 &lt;h2&gt;/&lt;h3&gt; 或語義明確之區塊（如含章節標題文字的 &lt;div&gt;/&lt;td&gt;）轉為「##/###」。
+3. 提取鍵值對
+   * 將 &lt;th&gt;/&lt;td&gt; 或等效結構的成對資訊輸出為清單：「標籤: 內容」。
+4. 段落與列表
+   * &lt;ul&gt;/&lt;ol&gt;/&lt;li&gt; → 「-」或「1.」
+   * &lt;p&gt;/&lt;div&gt;/&lt;span&gt; → 提取段落文字，保留基本換行與分段。
+5. 排除項目（Exclusions）
+   * 忽略 &lt;head&gt;（&lt;title&gt;/&lt;meta&gt;/&lt;style&gt; 等）、頁首/頁尾/導覽列/版權、非文字元素（&lt;img&gt;/&lt;script&gt;）。
+   * &lt;a&gt; 僅保留可見文字（不保留 URL）。
+
+關鍵加強：代碼欄位的強韌擷取規則
+
+A. 標籤同義詞與正規化
+
+* 先正規化標籤文字：移除前後空白、合併多空白、將全形冒號「：」與半形冒號「:」視為等價。
+* 代碼關鍵詞（大小寫不敏感）：代碼, 代码, 編號, 编号, ID, IDNO, Code, 識別碼, 识别码
+* 文本比對模式（任一即算匹配）：
+  ^(代碼|代码|編號|编号|ID|IDNO|Code|識別碼|识别码)\\s*[:：]\\s*([A-Za-z0-9-_.]+)$
+
+B. 可見文字掃描（Primary）
+
+* 全文掃描可見文本節點，優先解析右上角、頁眉行內區塊、表格外側的行內元素。
+* 命中上述模式後，擷取群組2（實際值），寫入「中繼資料」，來源標記為 text。
+
+C. Href 參數備援（Fallback 1）
+
+* 若可見文本未命中，掃描所有 &lt;a&gt; 的 href 查找參數鍵：idno, code, id, resumeId, candidateId。
+* 解析查詢字串並擷取第一個命中鍵的值；若符合格式 [A-Za-z0-9-_.]+，寫入「中繼資料」，來源標記為 href。
+
+D. 相鄰上下文備援（Fallback 2）
+
+* 若關鍵詞與值分處不同節點（如「代碼：」「1730…」在相鄰 &lt;td&gt;/&lt;span&gt;），允許跨節點合併判讀。
+
+E. 多重候選去重與選擇
+
+* 若同時有多個候選值：
+  1. 優先選擇與關鍵詞同列或相鄰者；
+  2. 若僅 href 有值，選 href；
+  3. 若 text 與 href 一致，來源標記為 both；若不一致，主值選 text，於中繼資料次行加「備註: 次要候選=&lt;值, 來源&gt;」。
+     F. 安全與空值策略
+* 若最終仍無法取得，輸出「代碼: 未知（來源：none）」。
+
+錯字與符號正規化（Normalization）
+
+* 全形/半形冒號等價；移除不可見空白（如  、零寬空白）。
+* 合併連續空白為單一空白。
+* &lt;br&gt; 轉為單一換行。
+* 移除高頻噪音字符（如多餘分隔線）但保留語意。
+
+品質檢核（Validation）
+
+* 若擷取的代碼長度 ≥ 8 且僅含英數與「-_.」，視為高可信。
+* 若同時從可見文本與 href 取得且一致，來源記為 both。
+* 在最終輸出前，先產出「中繼資料」區塊；即使代碼未知，也需明確標記。
+
+任務（Task）
+請依上述規則處理接下來提供的 HTML 內容：
+
+1. 先輸出「中繼資料」區塊（至少含代碼與主標題）。
+2. 再輸出轉換後的 Markdown 主體內容（依章節階層與表格鍵值對整理）。
+3. 嚴格遵守排除與正規化規則，確保輸出格式純淨、語意清晰。
+`;
 
 
 // 當試算表被打開時，自動建立一個自訂選單
@@ -52,7 +135,8 @@ function onOpen() {
       .addItem('更新郵箱簡歷清單', 'mainProcessResumes')
       .addItem('依序儲存郵箱簡歷', 'saveEmailAsHtmlFile')
       .addItem('依序轉換簡歷格式', 'convertDocsToMarkdown')
-      .addItem('讀取 E-mail 與聯絡電話', 'extractContactInfoFromMarkdown') // [新增]
+      // .addItem('讀取 E-mail 與聯絡電話', 'extractContactInfoFromMarkdown')
+      .addItem('讀取 E-mail 與聯絡電話', 'extractContactInfoWithGemini')
       .addItem('依序評分簡歷', 'evaluateResumes') 
       .addItem('依序發送面試邀請郵件', 'sendInvitationEmails')
       .addItem('今日簡歷快報', 'generateDailyCVReviewReport_v4')
@@ -105,8 +189,8 @@ function dailyWorkflow() {
     convertDocsToMarkdown();
     Logger.log("步驟 3/7: 完成。");
 
-    Logger.log("步驟 4/7: 讀取 E-mail 與聯絡電話 (extractContactInfoFromMarkdown)...");
-    extractContactInfoFromMarkdown();
+    Logger.log("步驟 4/7: 讀取 E-mail 與聯絡電話 (extractContactInfoWithGemini)...");
+    extractContactInfoWithGemini();
     Logger.log("步驟 4/7: 完成。");
 
     Logger.log("步驟 5/7: 依序評分簡歷 (evaluateResumes)...");
@@ -539,10 +623,11 @@ function saveEmailAsHtmlFile() {
   const mailFolder = DriveApp.getFolderById(folderId);
   const dataRange = sheet.getDataRange();
   const values = dataRange.getValues();
+  let updateCounter = 0; // [新增] 更新計數器
 
   for (let i = 1; i < values.length; i++) {
     const messageId = values[i][4]; // 假設 messageId 在 E 欄
-
+    const rowNum = i + 1;
     // 如果 messageId 存在且目標儲存格是空的
     if (messageId && !values[i][5]) { // 假設目標是 F 欄
       try {
@@ -564,10 +649,18 @@ function saveEmailAsHtmlFile() {
         const fileUrl = htmlFile.getUrl();
 
         sheet.getRange(i + 1, 6).setValue(fileUrl);
+        updateCounter++; // [新增] 計數器加一
 
       } catch (e) {
         const errorMessage = `處理失敗: ${e.name} - ${e.message} (at line ${e.lineNumber})`;
         sheet.getRange(i + 1, 6).setValue(errorMessage);
+        updateCounter++; // [新增] 即使失敗也算一次更新
+      }
+
+      // [新增] 每處理 3 筆資料就刷新一次畫面
+      if (updateCounter > 0 && updateCounter % 3 === 0) {
+        SpreadsheetApp.flush();
+        Logger.log(`[INFO] saveEmailAsHtmlFile: 已處理 ${updateCounter} 筆資料 (至第 ${rowNum} 列)，刷新畫面。`);
       }
     }
   }
@@ -678,8 +771,9 @@ function getGmailMessagesByMessageId() {
  * 讀取 '履歷清單' 中已存檔的履歷 (HTML 或 Google Doc)，
  * 透過 Gemini API 將其內容轉換為 Markdown 格式，並使用內建 Logger 記錄過程。
  * 此版本已確認可處理標準的 Google Drive 檔案分享連結。
+ * @param {string|null} [customPrompt=null] - (可選) 自訂的提示詞。若提供，將覆寫從工作表讀取的設定。
  */
-function convertDocsToMarkdown() {
+function convertDocsToMarkdown(customPrompt = null) {
   const FUNCTION_NAME = 'convertDocsToMarkdown'; // 定義函式名稱供日誌使用
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('履歷清單');
   
@@ -704,6 +798,7 @@ function convertDocsToMarkdown() {
   const dataRange = sheet.getDataRange();
   const values = dataRange.getValues();
   const headers = values[0];
+  let updateCounter = 0; // [新增] 更新計數器
 
   // --- 檢查並新增所有需要的欄位 ---
   let mdUrlColIdx = headers.indexOf('Markdown 檔案連結');
@@ -754,7 +849,9 @@ function convertDocsToMarkdown() {
           throw new Error("讀取檔案內容為空。");
       }
 
-      const html2md_prompt = getPrompt('html2md') || "請將接下來提供的 HTML 履歷內容，轉換為結構清晰的 Markdown 格式。"; // Fallback
+      // 優先使用傳入的 customPrompt，若為 null 則讀取工作表設定，最後使用預設值
+      const html2md_prompt = customPrompt || getPrompt('html2md') || "請將接下來提供的 HTML 履歷內容，轉換為結構清晰的 Markdown 格式。";
+
       let markdownContent = callGeminiAPI(html2md_prompt + "\n\n" + fileContent);
 
       if (markdownContent) {
@@ -770,10 +867,17 @@ function convertDocsToMarkdown() {
         const mdFile = mailFolder.createFile(mdFileName, markdownContent, MimeType.PLAIN_TEXT);          
         const mdFileUrl = mdFile.getUrl();
         sheet.getRange(rowNum, mdUrlColIdx + 1).setValue(mdFileUrl);
+        updateCounter++; // [新增] 計數器加一
         Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功轉換檔案 "${fileName}"。`);
 
       } else {
         throw new Error("Gemini API 回傳內容為空或轉換失敗。");
+      }
+
+      // [新增] 每處理 3 筆資料就刷新一次畫面
+      if (updateCounter > 0 && updateCounter % 3 === 0) {
+        SpreadsheetApp.flush();
+        Logger.log(`[INFO] ${FUNCTION_NAME}: 已處理 ${updateCounter} 筆資料 (至第 ${rowNum} 列)，刷新畫面。`);
       }
 
     } catch (e) {
@@ -785,6 +889,26 @@ function convertDocsToMarkdown() {
     }
   }
   Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 轉換作業結束 =======`);
+}
+
+/**
+ * [測試] 使用新的 html2mdPrompt_2 提示詞來執行簡歷轉換。
+ * 這是為了方便測試新版 Prompt 的效果，而不需要修改工作表或主要流程。
+ */
+function testConvertDocsToMarkdownWithNewPrompt() {
+  const FUNCTION_NAME = 'testConvertDocsToMarkdownWithNewPrompt';
+  const ui = SpreadsheetApp.getUi();
+  Logger.log(`======= [開始] ${FUNCTION_NAME}: 使用 html2mdPrompt_2 進行測試轉換 =======`);
+  try {
+    // 呼叫 convertDocsToMarkdown 並傳入 html2mdPrompt_2 作為自訂提示詞
+    convertDocsToMarkdown(html2mdPrompt_next);
+    Logger.log(`[SUCCESS] ${FUNCTION_NAME}: 測試轉換流程已完成。請檢查 '履歷清單' 工作表中的 'Markdown 檔案連結' 欄位。`);
+    ui.alert('測試轉換完成！', '已使用新的 Prompt 執行轉換，請檢查工作表中的結果。', ui.ButtonSet.OK);
+  } catch (e) {
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: 測試轉換過程中發生錯誤: ${e.toString()}\n${e.stack}`);
+    ui.alert('測試轉換失敗', `執行過程中發生錯誤：\n${e.toString()}`, ui.ButtonSet.OK);
+  }
+  Logger.log(`======= [結束] ${FUNCTION_NAME}: 測試轉換 =======`);
 }
 
 /**
@@ -850,6 +974,7 @@ function extractContactInfoFromMarkdown() {
     codeColIdx = headers.indexOf('代碼'); // 新增：重新獲取「代碼」欄位索引
   }
 
+  let updateCounter = 0; // [新增] 更新計數器
   Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 聯絡資訊提取作業開始，共 ${values.length - 1} 筆資料 =======`);
 
   for (let i = 1; i < values.length; i++) {
@@ -900,11 +1025,21 @@ function extractContactInfoFromMarkdown() {
         // 新增：處理代碼
         if (!codeCell) { // 只有當儲存格為空時才處理
           if (codeMatch && codeMatch[1]) {
-            sheet.getRange(rowNum, codeColIdx + 1).setValue("'" + codeMatch[1].trim()); // 加上 ' 確保以文字格式儲存
-            Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功提取代碼。`);
+            const code = codeMatch[1].trim();
+            const formula = `=HYPERLINK("https://vip.104.com.tw/search/SearchResumeMaster?idno=${code}", "${code}")`;
+            sheet.getRange(rowNum, codeColIdx + 1).setFormula(formula);
+            Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功提取代碼並設定超連結。`);
           } else {
             sheet.getRange(rowNum, codeColIdx + 1).setValue('[N/A]');
           }
+        }
+        updateCounter++;
+
+
+        // [新增] 每處理 3 筆資料就刷新一次畫面
+        if (updateCounter > 0 && updateCounter % 3 === 0) {
+          SpreadsheetApp.flush();
+          Logger.log(`[INFO] ${FUNCTION_NAME}: 已處理 ${updateCounter} 筆資料 (至第 ${rowNum} 列)，刷新畫面。`);
         }
 
       } catch (e) {
@@ -921,16 +1056,158 @@ function extractContactInfoFromMarkdown() {
 }
 
 /**
+ * [測試用] 使用 Gemini API 的結構化輸出功能從 Markdown 檔案中提取聯絡資訊。
+ * 遍歷 '履歷清單'，讀取 Markdown 履歷內容，並使用 Gemini 解析出聯絡資訊填入對應欄位。
+ * 此版本將 Prompt 直接寫在程式碼中以便測試。
+ */
+function extractContactInfoWithGemini() {
+  const FUNCTION_NAME = 'extractContactInfoWithGemini';
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('履歷清單');
+  
+  if (!sheet) {
+    const errorMsg = '找不到名為 "履歷清單" 的工作表';
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
+
+  let dataRange = sheet.getDataRange();
+  let values = dataRange.getValues();
+  let headers = values[0];
+
+  // --- 檢查並獲取所需欄位的索引 (與原函式相同) ---
+  let mdUrlColIdx = headers.indexOf('Markdown 檔案連結');
+  let emailColIdx = headers.indexOf('E-mail');
+  let phoneColIdx = headers.indexOf('聯絡電話');
+  let codeColIdx = headers.indexOf('代碼');
+
+  if (mdUrlColIdx === -1) {
+    const errorMsg = '找不到 "Markdown 檔案連結" 欄位。請先執行「依序轉換簡歷格式」。';
+    Logger.log(`[ERROR] ${FUNCTION_NAME}: ${errorMsg}`);
+    SpreadsheetApp.getUi().alert(errorMsg);
+    return;
+  }
+
+  // --- 動態新增不存在的欄位 (與原函式相同) ---
+  let columnsAdded = false;
+  if (emailColIdx === -1) { 
+    sheet.insertColumnAfter(mdUrlColIdx + 1);
+    sheet.getRange(1, mdUrlColIdx + 2).setValue('E-mail');
+    columnsAdded = true; 
+    headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  }
+  if (phoneColIdx === -1) { 
+    emailColIdx = headers.indexOf('E-mail');
+    sheet.insertColumnAfter(emailColIdx + 1);
+    sheet.getRange(1, emailColIdx + 2).setValue('聯絡電話');
+    columnsAdded = true; 
+    headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  }
+  if (codeColIdx === -1) { 
+    phoneColIdx = headers.indexOf('聯絡電話');
+    sheet.insertColumnAfter(phoneColIdx + 1);
+    sheet.getRange(1, phoneColIdx + 2).setValue('代碼');
+    columnsAdded = true; 
+  }
+
+  if (columnsAdded) {
+    dataRange = sheet.getDataRange();
+    values = dataRange.getValues();
+    headers = values[0];
+    emailColIdx = headers.indexOf('E-mail');
+    phoneColIdx = headers.indexOf('聯絡電話');
+    codeColIdx = headers.indexOf('代碼');
+  }
+
+  // [修改] 將 Prompt 簡化，專注於任務描述
+  const promptTemplate = `請從以下提供的履歷文字中，提取出 E-mail、聯絡電話和104履歷代碼。如果某個欄位找不到對應資訊，請將該欄位的值設為 "N/A"。履歷文字如下：`;
+
+  // [新增] 根據 Gemini API 的要求，定義輸出的 JSON 結構 (Schema)
+  const CONTACT_INFO_SCHEMA = {
+    "type": "OBJECT",
+    "properties": {
+      "email": { "type": "STRING" },
+      "phone": { "type": "STRING" },
+      "code": { "type": "STRING" }
+    },
+    "required": ["email", "phone", "code"]
+  };
+
+  let updateCounter = 0; // [新增] 更新計數器
+  Logger.log(`[INFO] ${FUNCTION_NAME}: ======= Gemini 聯絡資訊提取作業開始，共 ${values.length - 1} 筆資料 =======`);
+
+  for (let i = 1; i < values.length; i++) {
+    const rowNum = i + 1;
+    const markdownUrl = values[i][mdUrlColIdx];
+    const emailCell = values[i][emailColIdx];
+    const phoneCell = values[i][phoneColIdx];
+    const codeCell = values[i][codeColIdx];
+
+    // [修改] 根據使用者需求，僅檢查「代碼」欄位是否為空，作為是否處理此列的依據。
+    if (markdownUrl && !codeCell) {
+      try {
+        const idMatch = markdownUrl.match(/[-\w]{25,}/);
+        if (!idMatch) throw new Error("無法從 URL 中解析出檔案 ID。");
+        
+        const fileId = idMatch[0];
+        const markdownContent = DriveApp.getFileById(fileId).getBlob().getDataAsString('UTF-8');
+
+        if (!markdownContent) throw new Error("讀取的 Markdown 檔案內容為空。");
+
+        const finalPrompt = `${promptTemplate}\n\n${markdownContent}`;
+        // [修改] 呼叫 API 時傳入 responseSchema 以啟用結構化輸出
+        const responseText = callGeminiAPI(finalPrompt, { responseSchema: CONTACT_INFO_SCHEMA });
+
+        if (!responseText) throw new Error("Gemini API 回傳內容為空。");
+
+        // 從回應中穩健地提取 JSON 字串
+        const jsonStringMatch = responseText.match(/\{[\s\S]*\}/);
+        if (!jsonStringMatch) throw new Error("Gemini API 回應中找不到有效的 JSON 物件。");
+        
+        const contactInfo = JSON.parse(jsonStringMatch[0]);
+
+        if (!emailCell && contactInfo.email) {
+          sheet.getRange(rowNum, emailColIdx + 1).setValue(contactInfo.email);
+        }
+        if (!phoneCell && contactInfo.phone) {
+          sheet.getRange(rowNum, phoneColIdx + 1).setValue(contactInfo.phone);
+        }
+        if (!codeCell && contactInfo.code) {
+          const code = contactInfo.code.trim();
+          if (code && code.toLowerCase() !== 'n/a') {
+            const formula = `=HYPERLINK("https://vip.104.com.tw/search/SearchResumeMaster?idno=${code}", "${code}")`;
+            sheet.getRange(rowNum, codeColIdx + 1).setFormula(formula);
+          }
+        }
+        updateCounter++;
+        Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功使用 Gemini 提取資訊。`);
+
+        // [新增] 每處理 3 筆資料就刷新一次畫面
+        if (updateCounter > 0 && updateCounter % 3 === 0) {
+          SpreadsheetApp.flush();
+          Logger.log(`[INFO] ${FUNCTION_NAME}: 已處理 ${updateCounter} 筆資料 (至第 ${rowNum} 列)，刷新畫面。`);
+        }
+
+      } catch (e) {
+        Logger.log(`[ERROR] ${FUNCTION_NAME}: 第 ${rowNum} 列處理失敗。\n  URL: ${markdownUrl}\n  錯誤訊息: ${e.stack}`);
+      }
+    }
+  }
+  Logger.log(`[INFO] ${FUNCTION_NAME}: ======= Gemini 聯絡資訊提取作業結束 =======`);
+}
+
+/**
  * 呼叫 Google Gemini API
+ * [修改] 擴充 params 參數，使其支援 responseSchema 以實現結構化輸出
  * @param {string} prompt - 要發送給模型的完整提示詞
+ * @param {object} [params={}] - (可選) 額外的 API 參數。例如: { responseSchema: {...} }
  * @return {string|null} - 模型生成的回應內容，或在失敗時返回 null
  */
-function callGeminiAPI(prompt) {
+function callGeminiAPI(prompt, params = {}) { // eslint-disable-line no-unused-vars
   const scriptProperties = PropertiesService.getScriptProperties();
   const apiKey = scriptProperties.getProperty('geminiApiKey');
 
   if (!apiKey) {
-    Logger.log('錯誤：找不到 geminiApiKey。請在指令碼屬性中設定。');
+    Logger.log('[ERROR] callGeminiAPI: 找不到 geminiApiKey。請在指令碼屬性中設定。');
     SpreadsheetApp.getUi().alert('錯誤：找不到 Gemini API 金鑰。\n請先點擊「履歷小幫手」>「設定 Gemini API KEY」進行設定。');
     return null;
   }
@@ -945,6 +1222,14 @@ function callGeminiAPI(prompt) {
       }]
     }]
   };
+
+  // [修改] 如果 params 中有 responseSchema，則設定 generationConfig
+  if (params.responseSchema) {
+    payload.generationConfig = {
+      "responseMimeType": "application/json", // 修正為駝峰式命名
+      "responseSchema": params.responseSchema
+    };
+  }
 
   const options = {
     'method': 'post',
@@ -965,11 +1250,11 @@ function callGeminiAPI(prompt) {
       const jsonResponse = JSON.parse(responseBody);
       return jsonResponse.candidates[0].content.parts[0].text;
     } else {
-      Logger.log(`API 請求失敗，狀態碼: ${responseCode}, 回應: ${responseBody}`);
+      Logger.log(`[ERROR] callGeminiAPI: API 請求失敗，狀態碼: ${responseCode}, 回應: ${responseBody}`);
       return null;
     }
   } catch (e) {
-    Logger.log(`呼叫 API 時發生例外錯誤: ${e.toString()}`);
+    Logger.log(`[ERROR] callGeminiAPI: 呼叫 API 時發生例外錯誤: ${e.toString()}`);
     return null;
   }
 }
@@ -1115,6 +1400,7 @@ function evaluateResumes() {
   summaryPromptFileColIdx = updatedHeaders.indexOf('Summary Prompt 檔案連結'); // 新增：更新 Summary Prompt 連結欄位的索引
 
 
+  let updateCounter = 0; // [新增] 更新計數器
   Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 履歷評估作業開始，共 ${values.length - 1} 筆資料 =======`);
 
   // 從 CONFIG 工作表讀取 JD 和 Benchmark CV
@@ -1150,6 +1436,9 @@ function evaluateResumes() {
     try {
       Logger.log(`[INFO] ${FUNCTION_NAME}: 正在處理第 ${rowNum} 列...`);
       summaryCell.setValue('評估中...');
+      // 強制將 "評估中..." 的狀態更新到畫面上，讓使用者能即時看到
+      SpreadsheetApp.flush();
+
 
       const idMatch = markdownUrl.match(/[-\w]{25,}/);
       if (!idMatch) throw new Error("無法從 URL 中解析出檔案 ID。");
@@ -1202,10 +1491,17 @@ function evaluateResumes() {
         const newFileName = originalFileName.replace(/\.md$/i, '') + '_評估報告.md';
         const newFile = mailFolder.createFile(newFileName, combinedContent, MimeType.PLAIN_TEXT);
         sheet.getRange(rowNum, fullReportColIdx + 1).setValue(newFile.getUrl());
+        updateCounter++; // [新增] 計數器加一
         
         Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列：成功產生評估報告。`);
       } else {
         throw new Error(evaluationResult || "Gemini API 回傳內容為空或評估失敗。");
+      }
+
+      // [新增] 每處理 3 筆資料就刷新一次畫面
+      if (updateCounter > 0 && updateCounter % 3 === 0) {
+        SpreadsheetApp.flush();
+        Logger.log(`[INFO] ${FUNCTION_NAME}: 已處理 ${updateCounter} 筆資料 (至第 ${rowNum} 列)，刷新畫面。`);
       }
 
     } catch (e) {
@@ -1496,6 +1792,7 @@ function sendInvitationEmails() {
 
   Logger.log(`[INFO] ${FUNCTION_NAME}: ======= 開始檢查並建立面試邀請草稿 (分數門檻: ${rankThreshold}, 自動建立: ${autoSendEmail}) =======`);
   let emailsSentCount = 0;
+  let updateCounter = 0; // [新增] 更新計數器
 
   for (let i = 1; i < values.length; i++) {
     const rowData = values[i];
@@ -1523,6 +1820,7 @@ function sendInvitationEmails() {
           if (!recipientEmail || recipientEmail === '[N/A]') {
             Logger.log(`[WARN] ${FUNCTION_NAME}: 第 ${rowNum} 列分數達標但缺少有效的 E-mail 地址，無法發送邀請。`);
             sheet.getRange(rowNum, invitationSentColIdx + 1).setValue('缺少E-mail');
+            updateCounter++;
             continue;
           }
 
@@ -1545,18 +1843,28 @@ function sendInvitationEmails() {
 
             // 更新工作表狀態為草稿連結
             sheet.getRange(rowNum, invitationSentColIdx + 1).setValue(draftUrl);
+            updateCounter++;
             emailsSentCount++;
             Logger.log(`[SUCCESS] ${FUNCTION_NAME}: 已為 "${applicantName}" (${recipientEmail}) 建立面試邀請草稿。`);
           } else {
             // 如果設定為不自動發送，則將狀態標記為 'disabled'
             sheet.getRange(rowNum, invitationSentColIdx + 1).setValue('disabled');
+            updateCounter++;
             Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列分數達標，但因 AUTO_SEND_INVITATION_EMAIL=false，狀態設為 'disabled'。`);
           }
         } else {
           // 如果分數未達門檻，則將狀態標記為「未達標」
           sheet.getRange(rowNum, invitationSentColIdx + 1).setValue('未達標');
+          updateCounter++;
           Logger.log(`[INFO] ${FUNCTION_NAME}: 第 ${rowNum} 列分數 (${score}) 未達門檻 (${rankThreshold})，狀態設為 '未達標'。`);
         }
+
+        // [新增] 每處理 3 筆資料就刷新一次畫面
+        if (updateCounter > 0 && updateCounter % 3 === 0) {
+          SpreadsheetApp.flush();
+          Logger.log(`[INFO] ${FUNCTION_NAME}: 已處理 ${updateCounter} 筆資料 (至第 ${rowNum} 列)，刷新畫面。`);
+        }
+
       } catch (e) {
         const errorMessage = `處理失敗: ${e.toString()}`;
         sheet.getRange(rowNum, invitationSentColIdx + 1).setValue(errorMessage);
