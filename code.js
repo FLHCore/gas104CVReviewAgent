@@ -202,7 +202,8 @@ function dailyWorkflow() {
     Logger.log("步驟 6/7: 完成。");
 
     Logger.log("步驟 7/7: 產生並寄送今日簡歷快報 (generateDailyCVReviewReport_v4)...");
-    generateDailyCVReviewReport_v4();
+    // generateDailyCVReviewReport_v4();
+    Logger.log("skip generateDailyCVReviewReport_v4() for email address may not be parsed.");
     Logger.log("步驟 7/7: 完成。");
 
   } catch (e) {
